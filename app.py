@@ -693,7 +693,7 @@ if st.session_state.processed:
     # Thay map() bằng apply(axis=1) để áp dụng định dạng cho toàn bộ dòng ngang
     st.dataframe(
         df_display.style.apply(highlight_similarity, axis=1), 
-        use_container_width=True, 
+        width='stretch', 
         height=400, 
         hide_index=True,
         column_config={
