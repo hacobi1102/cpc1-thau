@@ -75,10 +75,23 @@ st.markdown(
     button[data-baseweb="tab"] {
         font-weight: 700;
     }
+    
+    /* Target the code block container */
+    pre {
+        max-height: 48px !important;
+        background-color: #4e4e4e !important; /* Dark background */
+        color: #d4d4d4 !important;           /* Light text */
+    }
+    /* Optional: style inline code */
+    code {
+        color: #ffcc00 !important;
+        background-color: transparent !important;
+    }
     </style>
     """,
     unsafe_allow_html=True
 )
+
 # Danh sách các cột chứa dữ liệu số cần tính toán
 GLOBAL_CALC_COLS = ['Số lượng', 'Đơn giá chưa VAT', 'Đơn giá có VAT', 'Số tiền CK', 'Thành tiền chưa VAT', 'Thành tiền có VAT']
 
@@ -434,7 +447,7 @@ def process_uploaded_files(uploaded_files):
             .str.replace('Oá', 'Óa', regex=False)
         )
         
-        # Chỉ parse ngày để dùng cho các bộ lọc/bảng khác, không sort lại toàn bộ dòng
+        # Parse ngày để dùng cho các bộ lọc
         if 'Ngày hóa đơn' in master_df.columns:
             master_df[SORT_DATE_COL] = parse_invoice_dates(master_df['Ngày hóa đơn'])
         
@@ -483,32 +496,21 @@ def render_result_table(final_df, selected_columns, tab_key, show_total_text=Tru
         display_df = display_df.drop(columns=['STT'])
     display_df.insert(0, 'STT', range(1, len(display_df) + 1))
     
-    # Tính dòng TỔNG CỘNG
-    total_row = {col: "" for col in display_df.columns}
-    text_col = next((col for col in display_df.columns if col not in GLOBAL_CALC_COLS and col != 'STT'), None)
-    
-    if text_col: total_row[text_col] = "TỔNG CỘNG"
-    else: total_row['STT'] = "TỔNG"
-        
     total_display_value = 0
     total_display_label = None
-    # Chỉ tính tổng dòng cuối cho các cột Thành tiền và Tiền Chiết Khấu (Bỏ qua Số lượng, Đơn giá)
-    for col in EXPORT_SUM_COLS:
-        if col in display_df.columns:
-            val = display_df[col].sum()
-            total_row[col] = val
-            if col == 'Thành tiền có VAT':
-                total_display_value = val
-                total_display_label = 'Tổng Thành tiền có VAT'
-
-    if total_display_label is None and 'Thành tiền' in display_df.columns:
+    
+    # Chỉ tính tổng để hiển thị text bên dưới bảng (Không thêm dòng TỔNG CỘNG vào bảng kết quả)
+    if 'Thành tiền có VAT' in display_df.columns:
+        total_display_value = display_df['Thành tiền có VAT'].sum()
+        total_display_label = 'Tổng Thành tiền có VAT'
+    elif 'Thành tiền' in display_df.columns:
         total_display_value = display_df['Thành tiền'].sum()
         total_display_label = 'Tổng Thành tiền'
     
     export_df = display_df.copy()
     export_df = export_df.fillna("")
     
-    # --- ĐỊNH DẠNG UI (Visual DataFrame) ---
+    # --- ĐỊNH DẠNG UI ---
     def format_vn_number(x):
         if pd.isna(x) or x == "": return ""
         try:
@@ -517,41 +519,72 @@ def render_result_table(final_df, selected_columns, tab_key, show_total_text=Tru
             return x
             
     visual_df = export_df.copy()
-    for col in GLOBAL_CALC_COLS + EXTRA_FORMAT_COLS:
+    format_cols = GLOBAL_CALC_COLS + EXTRA_FORMAT_COLS
+    
+    # Chế độ xem web: Định dạng số có dấu chấm cho dễ đọc
+    for col in format_cols:
         if col in visual_df.columns:
             visual_df[col] = visual_df[col].apply(format_vn_number)
     
-    # Dùng Pandas Styler để căn lề phải cho cột số trên Web
-    
-    # Bảng hiển thị Web (autosize width)
-    st.dataframe(visual_df, width='stretch', hide_index=True)
-    
-    # Hiển thị số tiền bằng chữ
-    if show_total_text and total_display_label is not None:
-        def fmt_vn(x): return f"{float(x):,.0f}".replace(",", ".") if pd.notna(x) else "0"
-        st.markdown(f"**💰 {total_display_label}:** <span style='color:red; font-size: 1.1em;'>{fmt_vn(total_display_value)}</span> VNĐ", unsafe_allow_html=True)
-        st.markdown(f"**✍️ Bằng chữ:** *{doc_so_thanh_chu(total_display_value)}*")
-    
-    # --- XUẤT FILE EXCEL (.XLSX) ---
-    file_name_value = st.text_input(
-        "Tên file tải về",
-        value=ensure_xlsx_extension(default_file_name or f'ket_qua_loc_{tab_key}'),
-        key=f"download_name_{tab_key}"
+    # Dùng Styler để căn phải cột số và Column config cho cột STT
+    num_cols = [c for c in format_cols if c in visual_df.columns]
+    st.dataframe(
+        visual_df.style.set_properties(subset=num_cols, **{'text-align': 'right'}),
+        width='stretch', 
+        hide_index=True,
+        column_config={
+            "STT": st.column_config.Column(width="small")
+        }
     )
-    st.download_button(
-        label="📥 Tải kết quả xuống (Excel - .xlsx)",
-        data=build_export_excel(export_df),
-        file_name=ensure_xlsx_extension(file_name_value),
-        mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-        key=f"dl_btn_{tab_key}"
-    )
+    
+    # Chia khu vực thông tin (8) và khu vực copy nhanh (2)
+    col_info, col_copy = st.columns([8, 2])
+    
+    with col_info:
+        # Hiển thị số tiền bằng chữ (nếu có)
+        if show_total_text and total_display_label is not None:
+            def fmt_vn(x): return f"{float(x):,.0f}".replace(",", ".") if pd.notna(x) else "0"
+            st.markdown(f"**💰 {total_display_label}:** <span style='color:red; font-size: 1.1em;'>{fmt_vn(total_display_value)}</span> VNĐ", unsafe_allow_html=True)
+            st.markdown(f"**✍️ Bằng chữ:** *{doc_so_thanh_chu(total_display_value)}*")
+            
+        st.write("") # Thêm một chút khoảng trống
+        
+        # --- XUẤT FILE EXCEL (Được gom gọn vào cột trái) ---
+        dl_col1, dl_col2 = st.columns([3, 2])
+        with dl_col1:
+            file_name_value = st.text_input(
+                "Tên file tải về",
+                value=ensure_xlsx_extension(default_file_name or f'ket_qua_loc_{tab_key}'),
+                key=f"download_name_{tab_key}"
+            )
+        with dl_col2:
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True) # Căn nút bấm ngang với ô nhập text
+            st.download_button(
+                label="📥 Tải kết quả xuống (Excel - .xlsx)",
+                data=build_export_excel(export_df),
+                file_name=ensure_xlsx_extension(file_name_value),
+                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                key=f"dl_btn_{tab_key}"
+            )
+            
+    with col_copy:
+        st.caption("📋 **Copy nhanh (Bảng / Số / Chữ):**")
+        
+        # 1. Ô copy bảng TSV
+        tsv_data = export_df.to_csv(sep='\t', index=False)
+        st.code(tsv_data, language='plaintext')
+        
+        # 2. Ô copy Số và Chữ (nếu có tính tổng)
+        if show_total_text and total_display_label is not None:
+            st.code(fmt_vn(total_display_value), language='plaintext')
+            st.code(doc_so_thanh_chu(total_display_value), language='plaintext')
 
+# ==========================================
+# GIAO DIỆN CHÍNH
+# ==========================================
 main_tab_filter, main_tab_merge = st.tabs(["📊 Lọc Super SM2057 (NT)", "🧩 Gộp file SM2057"])
 
 with main_tab_filter:
-    # ==========================================
-    # 3. GIAO DIỆN TẢI FILE & LỌC DỮ LIỆU CHUNG
-    # ==========================================
     st.header("1. Tải dữ liệu lên")
     if "filter_uploader_nonce" not in st.session_state:
         st.session_state["filter_uploader_nonce"] = 0
