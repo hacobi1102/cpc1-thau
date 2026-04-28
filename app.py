@@ -29,6 +29,9 @@ REQUIRED_COLUMNS = ["Nhóm", "Hoạt_chất", "Hàm_lượng"]
 
 # Gom nhóm từ khóa theo từng cột chuẩn để dễ nhìn và dễ thêm mới
 _HEADER_CONFIG = {
+    "Mã_phần": [
+        "ma phan", "so phan", "ma phan thau", "ma phan lo", "phan lo", "so phan lo", "ma lo", "phan thau"
+    ],
     "Nhóm": [
         "nhom", "nhom thau", "nhom thuoc", "phan nhom", "group", "nhom hang", "nhom sp"
     ],
@@ -277,9 +280,17 @@ def standardize_combo(hc_raw, hl_raw):
     return hc_str, hl_str
 
 def process_single_row(input_row, cpc1_db, wratio_threshold=80):
+    # Lấy thông tin Mã phần (nếu có), dọn dẹp đuôi .0 nếu Excel tự động ép kiểu số
+    ma_phan = str(input_row.get("Mã_phần", "")).strip()
+    if ma_phan.lower() == 'nan': ma_phan = ""
+    # Nếu bị dính đuôi .0 (vd: 1.0, 2.0), gọt bỏ để trả về đúng số phần nguyên thủy
+    if ma_phan.endswith('.0') and ma_phan.replace('.0', '').isdigit(): 
+        ma_phan = ma_phan[:-2]
+
     for field in REQUIRED_COLUMNS:
         if pd.isna(input_row.get(field)) or str(input_row.get(field)).strip() == "":
             return {
+                "Mã phần": ma_phan,
                 "Dữ liệu Danh mục cần đối chiếu": "Lỗi Dữ Liệu",
                 "Dữ liệu Danh mục gốc CPC1": f"Vui lòng bổ sung cột [{field}]",
                 "Tên mặt hàng (CPC1)": "",
@@ -388,6 +399,7 @@ def process_single_row(input_row, cpc1_db, wratio_threshold=80):
         hang_sx = ""
 
     return {
+        "Mã phần": ma_phan,
         "Dữ liệu Danh mục cần đối chiếu": input_display,
         "Dữ liệu Danh mục gốc CPC1": cpc1_display,
         "Tên mặt hàng (CPC1)": ten_mat_hang,
@@ -698,6 +710,7 @@ if st.session_state.processed:
         hide_index=True,
         column_config={
             "STT": st.column_config.NumberColumn(width="small"),
+            "Mã phần": st.column_config.TextColumn(width="small"),
             "Hãng chào": st.column_config.TextColumn(width="small"),
             "Tỉ lệ khớp": st.column_config.TextColumn(width="small")
         }
