@@ -6,105 +6,125 @@ import unicodedata
 from datetime import datetime
 from difflib import SequenceMatcher
 
-EXPORT_SUM_COLS = ['Số tiền CK', 'Thành tiền chưa VAT', 'Thành tiền có VAT']
-SORT_DATE_COL = '__sort_date'
-EXTRA_FORMAT_COLS = ['Đơn giá', 'Thành tiền']
+# ==========================================
+# 1. CẤU HÌNH TRANG, BIẾN TOÀN CỤC & MAP TÊN CỘT
+# ==========================================
 
-# ==========================================
-# 1. CẤU HÌNH TRANG & BIẾN TOÀN CỤC
-# ==========================================
-st.set_page_config(page_title="Xử lý dữ liệu Super SM2057", layout="wide")
-st.title("📊 CPC1 - Super SM2057 (NT)")
-st.markdown(
-    """
-    <style>
-    .st-key-filter_bar {
-        position: fixed !important;
-        bottom: 0px !important;
-        left: 0px;
-        right: 0px;
-        z-index: 999 !important;
-        background: white;
-        padding: 1rem 3rem 1rem 3rem;
-        box-shadow: 0px -5px 10px rgba(0,0,0,0.05);
-        border-top: 1px solid #e0e0e0;
-    }
-    .st-key-filter_bar [data-testid="stHorizontalBlock"] {
-        align-items: end;
-        max-width: 1200px;
-        margin: 0 auto;
-    }
-    /* Tăng khoảng không bên dưới để bảng không bị che khuất bởi thanh fixed */
-    .main .block-container, [data-testid="stMainBlockContainer"] {
-        padding-bottom: 15rem !important;
-    }
-    .st-key-filter_reset_btn button {
-        color: #16a34a;
-        border: 1px solid #86efac;
-        background: #f0fdf4;
-        font-size: 1.2rem;
-        font-weight: 700;
-        min-height: 2.5rem;
-    }
-    .st-key-filter_reset_btn button:hover {
-        border-color: #22c55e;
-        background: #dcfce7;
-        color: #15803d;
-    }
-    .st-key-clear_upload_btn_filter,
-    .st-key-clear_upload_btn_merge {
-        margin-top: 2.3rem;
-    }
-    .st-key-clear_upload_btn_filter button,
-    .st-key-clear_upload_btn_merge button {
-        color: #dc2626;
-        border: 1px solid #fecaca;
-        background: #fef2f2;
-        font-size: 1.1rem;
-        font-weight: 700;
-        min-height: 3rem;
-        padding: 0 0.5rem;
-        border-radius: 0.5rem;
-    }
-    .st-key-clear_upload_btn_filter button:hover,
-    .st-key-clear_upload_btn_merge button:hover {
-        border-color: #f87171;
-        background: #fee2e2;
-        color: #b91c1c;
-    }
-    button[data-baseweb="tab"] {
-        font-weight: 700;
-    }
+# Gom nhóm tên cột để chống Hardcode. 
+# Nếu file Excel nguồn đổi tên cột, chỉ cần đổi ở đây!
+class COL:
+    MA_KH = 'Mã KH hóa đơn'
+    TEN_KH = 'Tên KH hóa đơn'
+    SO_HD = 'Số hợp đồng'
+    NGAY_HD = 'Ngày hóa đơn'
+    SO_CT = 'Số chứng từ ngoại'
+    NHA_SX = 'Nhà SX'
+    MA_HH = 'Mã HH'
+    TEN_HH = 'Tên HH'
+    DVT = 'ĐVT'
+    SO_LUONG = 'Số lượng'
+    DON_GIA = 'Đơn giá'
+    DON_GIA_CHUA_VAT = 'Đơn giá chưa VAT'
+    DON_GIA_CO_VAT = 'Đơn giá có VAT'
+    TIEN_CK = 'Số tiền CK'
+    THANH_TIEN = 'Thành tiền'
+    THANH_TIEN_CHUA_VAT = 'Thành tiền chưa VAT'
+    THANH_TIEN_CO_VAT = 'Thành tiền có VAT'
+    NOI_DUNG = 'Nội dung công việc'
     
-    /* Target the code block container */
-    pre {
-        max-height: 48px !important;
-        background-color: #4e4e4e !important; /* Dark background */
-        color: #d4d4d4 !important;           /* Light text */
-    }
-    /* Optional: style inline code */
-    code {
-        color: #ffcc00 !important;
-        background-color: transparent !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
+    # Các cột nội bộ sinh ra trong quá trình xử lý
+    KH_CODE = 'KH_Code'
+    KH_SEARCH = 'KH_Search'
+    KH_DISPLAY = 'KH_Display'
+    SORT_DATE = '__sort_date'
+    NGUON_FILE = 'Nguồn_File_Gốc'
+    STT = 'STT'
 
-# Danh sách các cột chứa dữ liệu số cần tính toán
-GLOBAL_CALC_COLS = ['Số lượng', 'Đơn giá chưa VAT', 'Đơn giá có VAT', 'Số tiền CK', 'Thành tiền chưa VAT', 'Thành tiền có VAT']
+GLOBAL_CALC_COLS = [COL.SO_LUONG, COL.DON_GIA_CHUA_VAT, COL.DON_GIA_CO_VAT, COL.TIEN_CK, COL.THANH_TIEN_CHUA_VAT, COL.THANH_TIEN_CO_VAT]
+EXPORT_SUM_COLS = [COL.TIEN_CK, COL.THANH_TIEN_CHUA_VAT, COL.THANH_TIEN_CO_VAT]
+EXTRA_FORMAT_COLS = [COL.DON_GIA, COL.THANH_TIEN]
+
+def setup_page_config():
+    st.set_page_config(page_title="Xử lý dữ liệu Super SM2057", layout="wide")
+    st.title("📊 CPC1 - Super SM2057 (NT)")
+    st.markdown(
+        """
+        <style>
+        .st-key-filter_bar {
+            position: fixed !important;
+            bottom: 0px !important;
+            left: 0px;
+            right: 0px;
+            z-index: 999 !important;
+            background: white;
+            padding: 1rem 3rem 1rem 3rem;
+            box-shadow: 0px -5px 10px rgba(0,0,0,0.05);
+            border-top: 1px solid #e0e0e0;
+        }
+        .st-key-filter_bar [data-testid="stHorizontalBlock"] {
+            align-items: end;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .main .block-container, [data-testid="stMainBlockContainer"] {
+            padding-bottom: 15rem !important;
+        }
+        .st-key-filter_reset_btn button {
+            color: #16a34a;
+            border: 1px solid #86efac;
+            background: #f0fdf4;
+            font-size: 1.2rem;
+            font-weight: 700;
+            min-height: 2.5rem;
+        }
+        .st-key-filter_reset_btn button:hover {
+            border-color: #22c55e;
+            background: #dcfce7;
+            color: #15803d;
+        }
+        .st-key-clear_upload_btn_filter,
+        .st-key-clear_upload_btn_merge {
+            margin-top: 2.3rem;
+        }
+        .st-key-clear_upload_btn_filter button,
+        .st-key-clear_upload_btn_merge button {
+            color: #dc2626;
+            border: 1px solid #fecaca;
+            background: #fef2f2;
+            font-size: 1.1rem;
+            font-weight: 700;
+            min-height: 3rem;
+            padding: 0 0.5rem;
+            border-radius: 0.5rem;
+        }
+        .st-key-clear_upload_btn_filter button:hover,
+        .st-key-clear_upload_btn_merge button:hover {
+            border-color: #f87171;
+            background: #fee2e2;
+            color: #b91c1c;
+        }
+        button[data-baseweb="tab"] { font-weight: 700; }
+        pre {
+            max-height: 48px !important;
+            background-color: #4e4e4e !important;
+            color: #d4d4d4 !important;
+        }
+        code {
+            color: #ffcc00 !important;
+            background-color: transparent !important;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
 # ==========================================
-# 2. CÁC HÀM XỬ LÝ & RENDER DỮ LIỆU
+# 2. CÁC HÀM XỬ LÝ DỮ LIỆU & TIỆN ÍCH
 # ==========================================
 def doc_so_thanh_chu(n):
-    """Hàm đọc số tiền ra chữ tiếng Việt chuẩn xác"""
     if pd.isna(n) or n == "": return ""
-    try:
-        n = int(n)
-    except:
-        return ""
+    try: n = int(n)
+    except: return ""
     if n == 0: return "Không đồng"
     if n < 0: return "Âm " + doc_so_thanh_chu(-n).lower()
     
@@ -112,12 +132,9 @@ def doc_so_thanh_chu(n):
     words = ["không", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"]
     
     def read_3_digits(num, read_zero_hundred=False):
-        h = num // 100
-        t = (num % 100) // 10
-        u = num % 10
+        h, t, u = num // 100, (num % 100) // 10, num % 10
         res = []
-        if h > 0 or read_zero_hundred:
-            res.extend([words[h], "trăm"])
+        if h > 0 or read_zero_hundred: res.extend([words[h], "trăm"])
         if t > 1:
             res.extend([words[t], "mươi"])
             if u == 1: res.append("mốt")
@@ -130,13 +147,11 @@ def doc_so_thanh_chu(n):
             elif u > 0: res.append(words[u])
         else:
             if u > 0:
-                if h > 0 or read_zero_hundred:
-                    res.append("lẻ")
+                if h > 0 or read_zero_hundred: res.append("lẻ")
                 res.append(words[u])
         return " ".join(res)
 
-    chunks = []
-    temp = n
+    chunks, temp = [], n
     while temp > 0:
         chunks.append(temp % 1000)
         temp //= 1000
@@ -144,16 +159,12 @@ def doc_so_thanh_chu(n):
     res = []
     for i, chunk in enumerate(chunks):
         if chunk > 0:
-            read_zero = False
-            if i < len(chunks) - 1 and sum(chunks[i+1:]) > 0 and chunk < 100:
-                read_zero = True
-            
+            read_zero = (i < len(chunks) - 1 and sum(chunks[i+1:]) > 0 and chunk < 100)
             chunk_str = read_3_digits(chunk, read_zero_hundred=read_zero)
             unit = units[i] if i < len(units) else ""
             res.insert(0, (chunk_str + " " + unit).strip())
             
-    final_str = " ".join(res).strip()
-    final_str = final_str.replace("  ", " ")
+    final_str = " ".join(res).strip().replace("  ", " ")
     return final_str.capitalize() + " đồng"
 
 def parse_invoice_dates(date_series):
@@ -161,12 +172,10 @@ def parse_invoice_dates(date_series):
     return parsed_dates.fillna(pd.to_datetime(date_series, dayfirst=True, errors='coerce'))
 
 def get_file_month_sort_key(df, date_column, sample_size=10):
-    if not date_column or date_column not in df.columns:
-        return (9999, 12)
+    if not date_column or date_column not in df.columns: return (9999, 12)
     sampled_dates = df[date_column].dropna().head(sample_size)
     parsed_dates = parse_invoice_dates(sampled_dates).dropna()
-    if parsed_dates.empty:
-        return (9999, 12)
+    if parsed_dates.empty: return (9999, 12)
     min_date = parsed_dates.min()
     return (int(min_date.year), int(min_date.month))
 
@@ -174,8 +183,7 @@ def normalize_text(value):
     text = "" if pd.isna(value) else str(value)
     text = re.sub(r'\s+', ' ', text).strip()
     text = unicodedata.normalize('NFKD', text)
-    text = ''.join(char for char in text if not unicodedata.combining(char))
-    return text.lower()
+    return ''.join(char for char in text if not unicodedata.combining(char)).lower()
 
 def reset_filter_state():
     st.session_state["filter_selected_kh"] = "Tất cả|||tat ca"
@@ -186,25 +194,20 @@ def reset_month_filter():
     st.session_state["filter_selected_months"] = []
 
 def clear_uploaded_filter_data():
-    st.session_state["filter_selected_kh"] = "Tất cả|||tat ca"
-    st.session_state["filter_selected_hd"] = "Tất cả"
-    st.session_state["filter_selected_months"] = []
+    reset_filter_state()
     st.session_state["filter_uploader_nonce"] = st.session_state.get("filter_uploader_nonce", 0) + 1
 
 def clear_uploaded_merge_data():
     st.session_state["merge_uploader_nonce"] = st.session_state.get("merge_uploader_nonce", 0) + 1
-    st.session_state.pop("merge_cache_fingerprint", None)
-    st.session_state.pop("merge_cached_df", None)
-    st.session_state.pop("merge_cached_errors", None)
-    st.session_state.pop("merge_cached_date_col", None)
+    for key in ["merge_cache_fingerprint", "merge_cached_df", "merge_cached_errors", "merge_cached_date_col"]:
+        st.session_state.pop(key, None)
 
 def get_uploaded_files_fingerprint(uploaded_files):
     return tuple((file.name, file.size) for file in uploaded_files)
 
 def sanitize_filename(filename):
     filename = re.sub(r'[<>:"/\\|?*]+', '_', str(filename).strip())
-    filename = re.sub(r'\s+', '_', filename)
-    return filename or "du_lieu"
+    return re.sub(r'\s+', '_', filename) or "du_lieu"
 
 def ensure_xlsx_extension(filename):
     filename = sanitize_filename(filename)
@@ -212,13 +215,11 @@ def ensure_xlsx_extension(filename):
 
 def standardize_header_name(value, fallback_prefix="Cột"):
     text = re.sub(r'\s+', ' ', str(value).strip())
-    if not text:
-        text = fallback_prefix
+    if not text: text = fallback_prefix
     return ' '.join(word[:1].upper() + word[1:].lower() for word in text.split())
 
 def make_unique_columns(columns):
-    seen = {}
-    unique_columns = []
+    seen, unique_columns = {}, []
     for index, col in enumerate(columns, start=1):
         base_name = standardize_header_name(col, fallback_prefix=f"Cột {index}")
         count = seen.get(base_name, 0)
@@ -228,21 +229,17 @@ def make_unique_columns(columns):
     return unique_columns
 
 def find_header_row(preview_df, keywords=None):
-    if preview_df.empty:
-        return 0
+    if preview_df.empty: return 0
     if keywords:
         preview_text = preview_df.fillna('').astype(str)
         for idx, row in preview_text.iterrows():
             row_values = row.str.lower().str.strip().tolist()
-            if any(any(kw in cell for kw in keywords) for cell in row_values):
-                return idx
-    non_null_counts = preview_df.notna().sum(axis=1)
-    return int(non_null_counts.idxmax())
+            if any(any(kw in cell for kw in keywords) for cell in row_values): return idx
+    return int(preview_df.notna().sum(axis=1).idxmax())
 
 def safe_read_excel(file, header=0, nrows=None):
     file.seek(0)
-    try:
-        return pd.read_excel(file, header=header, nrows=nrows, engine='calamine')
+    try: return pd.read_excel(file, header=header, nrows=nrows, engine='calamine')
     except Exception:
         file.seek(0)
         return pd.read_excel(file, header=header, nrows=nrows)
@@ -251,81 +248,54 @@ def collapse_duplicate_columns(df):
     collapsed_data = {}
     for col in pd.unique(df.columns):
         same_name_columns = df.loc[:, df.columns == col]
-        if same_name_columns.shape[1] == 1:
-            collapsed_data[col] = same_name_columns.iloc[:, 0]
-        else:
-            collapsed_data[col] = same_name_columns.bfill(axis=1).iloc[:, 0]
+        collapsed_data[col] = same_name_columns.iloc[:, 0] if same_name_columns.shape[1] == 1 else same_name_columns.bfill(axis=1).iloc[:, 0]
     return pd.DataFrame(collapsed_data)
 
 def find_best_matching_header(column_name, base_headers, threshold=0.85):
     normalized_column = normalize_text(column_name)
-    best_match = None
-    best_score = 0
+    best_match, best_score = None, 0
     for base_header in base_headers:
         score = SequenceMatcher(None, normalized_column, normalize_text(base_header)).ratio()
         if score > best_score:
-            best_score = score
-            best_match = base_header
-    if best_score >= threshold:
-        return best_match
-    return None
+            best_score, best_match = score, base_header
+    return best_match if best_score >= threshold else None
 
 def find_invoice_date_column(columns):
     keywords = ['ngay hoa don', 'ngay hoa don gtgt']
-    best_match = None
-    best_score = 0
+    best_match, best_score = None, 0
     for column in columns:
         normalized_column = normalize_text(column)
-        if 'ngay' in normalized_column and 'hoa' in normalized_column and 'don' in normalized_column:
-            return column
+        if 'ngay' in normalized_column and 'hoa' in normalized_column and 'don' in normalized_column: return column
         for keyword in keywords:
             score = SequenceMatcher(None, normalized_column, keyword).ratio()
-            if score > best_score:
-                best_score = score
-                best_match = column
-    if best_score >= 0.6:
-        return best_match
-    return None
+            if score > best_score: best_score, best_match = score, column
+    return best_match if best_score >= 0.6 else None
 
 def read_merge_source_file(file):
     preview_df = safe_read_excel(file, header=None, nrows=30)
-    header_idx = find_header_row(preview_df)
-    df = safe_read_excel(file, header=header_idx)
+    df = safe_read_excel(file, header=find_header_row(preview_df))
     df = df.dropna(axis=0, how='all')
     df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed', case=False, regex=True)]
     df.columns = make_unique_columns(df.columns)
-    df = collapse_duplicate_columns(df)
-    return df.reset_index(drop=True)
+    return collapse_duplicate_columns(df).reset_index(drop=True)
 
 def align_dataframe_columns(df, base_headers, threshold=0.85):
-    rename_map = {}
+    rename_map = {col: find_best_matching_header(col, base_headers, threshold) or col for col in df.columns}
+    df = collapse_duplicate_columns(df.rename(columns=rename_map))
     for column in df.columns:
-        matched_header = find_best_matching_header(column, base_headers, threshold=threshold)
-        rename_map[column] = matched_header or column
-
-    df = df.rename(columns=rename_map)
-    df = collapse_duplicate_columns(df)
-
-    for column in df.columns:
-        if column not in base_headers:
-            base_headers.append(column)
-
+        if column not in base_headers: base_headers.append(column)
     return df.reindex(columns=base_headers, fill_value=pd.NA), base_headers
 
 def merge_sm2057_files(uploaded_files, progress_bar=None, status_placeholder=None):
-    merged_frames = []
-    base_headers = []
-    errors = []
+    merged_frames, base_headers, errors = [], [], []
 
     for index, file in enumerate(uploaded_files, start=1):
-        if progress_bar is not None:
-            progress_bar.progress(index / len(uploaded_files), text=f"Đang xử lý {index}/{len(uploaded_files)} file")
-        if status_placeholder is not None:
-            status_placeholder.info(f"Đang đọc: {file.name}")
+        if progress_bar: progress_bar.progress(index / len(uploaded_files), text=f"Đang xử lý {index}/{len(uploaded_files)} file")
+        if status_placeholder: status_placeholder.info(f"Đang đọc: {file.name}")
 
         try:
             current_df = read_merge_source_file(file)
-            current_df['Nguồn_File_Gốc'] = file.name
+            current_df[COL.NGUON_FILE] = file.name
             date_column = find_invoice_date_column(current_df.columns)
             month_sort_key = get_file_month_sort_key(current_df, date_column)
 
@@ -338,61 +308,44 @@ def merge_sm2057_files(uploaded_files, progress_bar=None, status_placeholder=Non
         except Exception as exc:
             errors.append(f"{file.name}: {exc}")
 
-    if not merged_frames:
-        return None, errors, None
+    if not merged_frames: return None, errors, None
 
     merged_frames.sort(key=lambda item: (item[0][0], item[0][1], item[1]))
-    merged_df = pd.concat([item[2] for item in merged_frames], ignore_index=True)
-    merged_df = merged_df.dropna(axis=0, how='all').reset_index(drop=True)
-
-    date_column = find_invoice_date_column(merged_df.columns)
-    return merged_df, errors, date_column
+    merged_df = pd.concat([item[2] for item in merged_frames], ignore_index=True).dropna(axis=0, how='all').reset_index(drop=True)
+    return merged_df, errors, find_invoice_date_column(merged_df.columns)
 
 def build_agg_rules(columns, group_col):
     agg_rules = {}
     for col in columns:
-        if col in GLOBAL_CALC_COLS:
-            agg_rules[col] = 'sum'
-        elif col != group_col and col != 'KH_Display' and col != SORT_DATE_COL:
-            agg_rules[col] = 'first'
+        if col in GLOBAL_CALC_COLS: agg_rules[col] = 'sum'
+        elif col not in (group_col, COL.KH_DISPLAY, COL.SORT_DATE): agg_rules[col] = 'first'
     return agg_rules
 
 def build_bang_08a(source_df):
-    group_col = 'Số chứng từ ngoại'
-    date_col = 'Ngày hóa đơn'
-    amount_candidates = ['Thành tiền có VAT', 'Thành tiền chưa VAT']
+    if COL.SO_CT not in source_df.columns or COL.NGAY_HD not in source_df.columns:
+        return pd.DataFrame(columns=[COL.SO_CT, COL.NGAY_HD, COL.NOI_DUNG, COL.DVT, COL.SO_LUONG, COL.DON_GIA, COL.THANH_TIEN])
 
-    if group_col not in source_df.columns or date_col not in source_df.columns:
-        return pd.DataFrame(columns=[
-            'Số chứng từ ngoại', 'Ngày hóa đơn', 'Nội dung công việc',
-            'Đơn vị tính', 'Số lượng', 'Đơn giá', 'Thành tiền'
-        ])
-
-    amount_col = next((col for col in amount_candidates if col in source_df.columns), None)
-    grouped = source_df.groupby(group_col, as_index=False, sort=False).agg({
-        date_col: 'first',
-        SORT_DATE_COL: 'first' if SORT_DATE_COL in source_df.columns else (lambda x: pd.NaT)
+    amount_col = next((col for col in [COL.THANH_TIEN_CO_VAT, COL.THANH_TIEN_CHUA_VAT] if col in source_df.columns), None)
+    
+    grouped = source_df.groupby(COL.SO_CT, as_index=False, sort=False).agg({
+        COL.NGAY_HD: 'first',
+        COL.SORT_DATE: 'first' if COL.SORT_DATE in source_df.columns else (lambda x: pd.NaT)
     })
 
     if amount_col:
-        amount_df = source_df.groupby(group_col, as_index=False, sort=False)[amount_col].sum()
-        grouped = grouped.merge(amount_df, on=group_col, how='left')
-        grouped['Thành tiền'] = grouped[amount_col]
+        amount_df = source_df.groupby(COL.SO_CT, as_index=False, sort=False)[amount_col].sum()
+        grouped = grouped.merge(amount_df, on=COL.SO_CT, how='left')
+        grouped[COL.THANH_TIEN] = grouped[amount_col]
         grouped = grouped.drop(columns=[amount_col])
     else:
-        grouped['Thành tiền'] = 0
+        grouped[COL.THANH_TIEN] = 0
 
-    grouped['Nội dung công việc'] = (
-        "Hoá đơn số " + grouped[group_col].astype(str) + " ngày " + grouped[date_col].astype(str)
-    )
-    grouped['Đơn vị tính'] = ""
-    grouped['Số lượng'] = ""
-    grouped['Đơn giá'] = ""
+    grouped[COL.NOI_DUNG] = "Hoá đơn số " + grouped[COL.SO_CT].astype(str) + " ngày " + grouped[COL.NGAY_HD].astype(str)
+    grouped[COL.DVT] = ""
+    grouped[COL.SO_LUONG] = ""
+    grouped[COL.DON_GIA] = ""
 
-    return grouped[[
-        'Số chứng từ ngoại', 'Ngày hóa đơn', 'Nội dung công việc',
-        'Đơn vị tính', 'Số lượng', 'Đơn giá', 'Thành tiền'
-    ]]
+    return grouped[[COL.SO_CT, COL.NGAY_HD, COL.NOI_DUNG, COL.DVT, COL.SO_LUONG, COL.DON_GIA, COL.THANH_TIEN]]
 
 @st.cache_data(show_spinner=False)
 def aggregate_dataframe(source_df, group_col, keep_sort_order=False):
@@ -408,204 +361,206 @@ def build_export_excel(export_df):
 
 @st.cache_data(show_spinner=False)
 def process_uploaded_files(uploaded_files):
-    """Đọc và gộp nhiều file Excel/CSV thành 1 DataFrame duy nhất"""
     dfs = []
-    
     for file in uploaded_files:
         try:
-            # --- BƯỚC 1 & BƯỚC 2: Dò tìm dòng Header và đọc file ---
             if file.name.endswith('.csv'):
                 file.seek(0)
-                df_preview = pd.read_csv(file, header=None, nrows=30)
-                header_idx = find_header_row(df_preview, keywords=["mã kh hóa đơn", "mã kh hoá đơn"])
+                header_idx = find_header_row(pd.read_csv(file, header=None, nrows=30), keywords=["mã kh hóa đơn", "mã kh hoá đơn"])
                 file.seek(0)
                 df = pd.read_csv(file, header=header_idx)
             elif file.name.endswith(('.xls', '.xlsx')):
-                df_preview = safe_read_excel(file, header=None, nrows=30)
-                header_idx = find_header_row(df_preview, keywords=["mã kh hóa đơn", "mã kh hoá đơn"])
+                header_idx = find_header_row(safe_read_excel(file, header=None, nrows=30), keywords=["mã kh hóa đơn", "mã kh hoá đơn"])
                 df = safe_read_excel(file, header=header_idx)
-            else:
-                continue
+            else: continue
                 
-            # Loại bỏ cột rác
             df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
-            month_sort_key = get_file_month_sort_key(df, 'Ngày hóa đơn' if 'Ngày hóa đơn' in df.columns else None)
-            dfs.append((month_sort_key, len(dfs), df))
-            
+            dfs.append((get_file_month_sort_key(df, COL.NGAY_HD if COL.NGAY_HD in df.columns else None), len(dfs), df))
         except Exception as e:
             st.error(f"Lỗi khi đọc file {file.name}: {e}")
             
-    if dfs:
-        dfs.sort(key=lambda item: (item[0][0], item[0][1], item[1]))
-        master_df = pd.concat([item[2] for item in dfs], ignore_index=True)
-        
-        # Chuẩn hóa tên cột để xử lý lỗi gõ dấu (Hóa vs Hoá)
-        master_df.columns = (
-            master_df.columns.astype(str)
-            .str.strip()
-            .str.replace('oá', 'óa', regex=False)
-            .str.replace('Oá', 'Óa', regex=False)
-        )
-        
-        # Parse ngày để dùng cho các bộ lọc
-        if 'Ngày hóa đơn' in master_df.columns:
-            master_df[SORT_DATE_COL] = parse_invoice_dates(master_df['Ngày hóa đơn'])
-        
-        # Cột hiển thị khách hàng
-        if 'Mã KH hóa đơn' in master_df.columns and 'Tên KH hóa đơn' in master_df.columns:
-            master_df['KH_Code'] = master_df['Mã KH hóa đơn'].astype(str).str.strip()
-            master_df['KH_Search'] = master_df['Tên KH hóa đơn'].astype(str)
-            master_df['KH_Display'] = master_df['Mã KH hóa đơn'].astype(str) + " - " + master_df['Tên KH hóa đơn'].astype(str)
-        else:
-            master_df['KH_Code'] = "Không xác định"
-            master_df['KH_Search'] = "Không xác định"
-            master_df['KH_Display'] = "Không xác định - Không xác định"
-            
-        if 'Số hợp đồng' in master_df.columns:
-            master_df['Số hợp đồng'] = master_df['Số hợp đồng'].fillna("Không xác định")
-        else:
-            master_df['Số hợp đồng'] = "Không xác định"
-            
-        # Xử lý Nhà SX (Cắt phần đuôi sau dấu _)
-        if 'Nhà SX' in master_df.columns:
-            master_df['Nhà SX'] = master_df['Nhà SX'].fillna('')
-            master_df['Nhà SX'] = master_df['Nhà SX'].astype(str).apply(
-                lambda x: x.split('_', 1)[-1].strip() if '_' in x else x
-            )
-            
-        # Xử lý định dạng số VN khi nhập liệu
-        for col in GLOBAL_CALC_COLS:
-            if col in master_df.columns:
-                if master_df[col].dtype == 'object':
-                    master_df[col] = master_df[col].astype(str).str.replace(r'\.', '', regex=True).str.replace(',', '.', regex=False)
-                master_df[col] = pd.to_numeric(master_df[col], errors='coerce').fillna(0)
-                
-        return master_df
-    return None
+    if not dfs: return None
 
+    dfs.sort(key=lambda item: (item[0][0], item[0][1], item[1]))
+    master_df = pd.concat([item[2] for item in dfs], ignore_index=True)
+    
+    # Chuẩn hóa tên cột để xử lý lỗi gõ dấu (Hóa vs Hoá)
+    master_df.columns = master_df.columns.astype(str).str.strip().str.replace('oá', 'óa', regex=False).str.replace('Oá', 'Óa', regex=False)
+    
+    if COL.NGAY_HD in master_df.columns:
+        master_df[COL.SORT_DATE] = parse_invoice_dates(master_df[COL.NGAY_HD])
+    
+    if COL.MA_KH in master_df.columns and COL.TEN_KH in master_df.columns:
+        master_df[COL.KH_CODE] = master_df[COL.MA_KH].astype(str).str.strip()
+        master_df[COL.KH_SEARCH] = master_df[COL.TEN_KH].astype(str)
+        master_df[COL.KH_DISPLAY] = master_df[COL.MA_KH].astype(str) + " - " + master_df[COL.TEN_KH].astype(str)
+    else:
+        master_df[COL.KH_CODE] = master_df[COL.KH_SEARCH] = "Không xác định"
+        master_df[COL.KH_DISPLAY] = "Không xác định - Không xác định"
+        
+    master_df[COL.SO_HD] = master_df[COL.SO_HD].fillna("Không xác định") if COL.SO_HD in master_df.columns else "Không xác định"
+        
+    if COL.NHA_SX in master_df.columns:
+        master_df[COL.NHA_SX] = master_df[COL.NHA_SX].fillna('').astype(str).apply(lambda x: x.split('_', 1)[-1].strip() if '_' in x else x)
+        
+    for col in GLOBAL_CALC_COLS:
+        if col in master_df.columns:
+            if master_df[col].dtype == 'object':
+                master_df[col] = master_df[col].astype(str).str.replace(r'\.', '', regex=True).str.replace(',', '.', regex=False)
+            master_df[col] = pd.to_numeric(master_df[col], errors='coerce').fillna(0)
+            
+    return master_df
+
+
+# ==========================================
+# 3. CÁC HÀM RENDER GIAO DIỆN (UI COMPONENTS)
+# ==========================================
 def render_result_table(final_df, selected_columns, tab_key, show_total_text=True, default_file_name=None):
-    """Hàm tạo bảng kết quả, đánh STT, tính tổng và xuất Excel"""
     if not selected_columns:
         st.warning("Vui lòng chọn ít nhất 1 cột để hiển thị kết quả.")
         return
 
-    available_columns = [col for col in selected_columns if col in final_df.columns and col != SORT_DATE_COL]
+    available_columns = [col for col in selected_columns if col in final_df.columns and col != COL.SORT_DATE]
     display_df = final_df.loc[:, available_columns].copy()
     
-    if 'STT' in display_df.columns:
-        display_df = display_df.drop(columns=['STT'])
-    display_df.insert(0, 'STT', range(1, len(display_df) + 1))
+    if COL.STT in display_df.columns: display_df = display_df.drop(columns=[COL.STT])
+    display_df.insert(0, COL.STT, range(1, len(display_df) + 1))
     
-    total_display_value = 0
-    total_display_label = None
+    total_display_value, total_display_label = 0, None
+    if COL.THANH_TIEN_CO_VAT in display_df.columns:
+        total_display_value = display_df[COL.THANH_TIEN_CO_VAT].sum()
+        total_display_label = f'Tổng {COL.THANH_TIEN_CO_VAT}'
+    elif COL.THANH_TIEN in display_df.columns:
+        total_display_value = display_df[COL.THANH_TIEN].sum()
+        total_display_label = f'Tổng {COL.THANH_TIEN}'
     
-    # Chỉ tính tổng để hiển thị text bên dưới bảng (Không thêm dòng TỔNG CỘNG vào bảng kết quả)
-    if 'Thành tiền có VAT' in display_df.columns:
-        total_display_value = display_df['Thành tiền có VAT'].sum()
-        total_display_label = 'Tổng Thành tiền có VAT'
-    elif 'Thành tiền' in display_df.columns:
-        total_display_value = display_df['Thành tiền'].sum()
-        total_display_label = 'Tổng Thành tiền'
+    export_df = display_df.fillna("").copy()
     
-    export_df = display_df.copy()
-    export_df = export_df.fillna("")
-    
-    # --- ĐỊNH DẠNG UI ---
     def format_vn_number(x):
-        if pd.isna(x) or x == "": return ""
-        try:
-            return f"{float(x):,.0f}".replace(",", ".")
-        except:
-            return x
+        try: return f"{float(x):,.0f}".replace(",", ".") if pd.notna(x) and x != "" else ""
+        except: return x
             
     visual_df = export_df.copy()
     format_cols = GLOBAL_CALC_COLS + EXTRA_FORMAT_COLS
-    
-    # Chế độ xem web: Định dạng số có dấu chấm cho dễ đọc
     for col in format_cols:
-        if col in visual_df.columns:
-            visual_df[col] = visual_df[col].apply(format_vn_number)
+        if col in visual_df.columns: visual_df[col] = visual_df[col].apply(format_vn_number)
     
-    # Dùng Styler để căn phải cột số và Column config cho cột STT
     num_cols = [c for c in format_cols if c in visual_df.columns]
     st.dataframe(
         visual_df.style.set_properties(subset=num_cols, **{'text-align': 'right'}),
-        width='stretch', 
-        hide_index=True,
-        column_config={
-            "STT": st.column_config.Column(width="small")
-        }
+        use_container_width=True, hide_index=True,
+        column_config={COL.STT: st.column_config.Column(width="small")}
     )
     
-    # Chia khu vực thông tin (8) và khu vực copy nhanh (2)
-    col_info, col_copy = st.columns([8, 2])
+    st.write("") # Tạo khoảng trống
     
-    with col_info:
-        # Hiển thị số tiền bằng chữ (nếu có)
-        if show_total_text and total_display_label is not None:
-            def fmt_vn(x): return f"{float(x):,.0f}".replace(",", ".") if pd.notna(x) else "0"
-            st.markdown(f"**💰 {total_display_label}:** <span style='color:red; font-size: 1.1em;'>{fmt_vn(total_display_value)}</span> VNĐ", unsafe_allow_html=True)
-            st.markdown(f"**✍️ Bằng chữ:** *{doc_so_thanh_chu(total_display_value)}*")
-            
-        st.write("") # Thêm một chút khoảng trống
+    # CHIA CỘT CHÍNH [8, 2]
+    col_main, col_copy = st.columns([8, 2])
+    
+    # Tính trước format tiền để dùng cho cả 2 cột
+    fmt_val = ""
+    if show_total_text and total_display_label:
+        fmt_val = f"{float(total_display_value):,.0f}".replace(",", ".")
         
-        # --- XUẤT FILE EXCEL (Được gom gọn vào cột trái) ---
-        dl_col1, dl_col2 = st.columns([3, 2])
+    with col_main:
+        # --- 1. KHU VỰC HIỂN THỊ TỔNG TIỀN (Hiển thị nổi bật dạng Card) ---
+        if show_total_text and total_display_label:
+            st.markdown(f"""
+            <div style="background-color: #f8fafc; padding: 12px 20px; border-radius: 8px; border-left: 5px solid #0ea5e9; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <span style="font-size: 1.1em;"><strong>💰 {total_display_label}:</strong></span>
+                <span style="color:#dc2626; font-size: 1.3em; font-weight: bold; margin-left: 8px;">{fmt_val}</span> VNĐ <br>
+                <span style="font-size: 1em; color: #475569; margin-top: 5px; display: inline-block;"><strong>✍️ Bằng chữ:</strong> <i>{doc_so_thanh_chu(total_display_value)}</i></span>
+            </div>
+            """, unsafe_allow_html=True)
+
+        # --- 2. KHU VỰC TẢI VỀ ---
+        dl_col1, dl_col2 = st.columns([4, 2])
         with dl_col1:
             file_name_value = st.text_input(
-                "Tên file tải về",
-                value=ensure_xlsx_extension(default_file_name or f'ket_qua_loc_{tab_key}'),
+                "Tên file tải về:",
+                value=ensure_xlsx_extension(default_file_name or f'ket_qua_{tab_key}'),
                 key=f"download_name_{tab_key}"
             )
+            
         with dl_col2:
-            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True) # Căn nút bấm ngang với ô nhập text
+            st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
             st.download_button(
-                label="📥 Tải kết quả xuống (Excel - .xlsx)",
+                label="📥 Tải Excel (.xlsx)",
                 data=build_export_excel(export_df),
                 file_name=ensure_xlsx_extension(file_name_value),
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                key=f"dl_btn_{tab_key}"
+                key=f"dl_btn_{tab_key}",
+                use_container_width=True
             )
             
     with col_copy:
-        st.caption("📋 **Copy nhanh (Bảng / Số / Chữ):**")
+        # --- 3. KHU VỰC COPY ---
+        st.code(export_df.to_csv(sep='\t', index=False), language='plaintext')
         
-        # 1. Ô copy bảng TSV
-        tsv_data = export_df.to_csv(sep='\t', index=False)
-        st.code(tsv_data, language='plaintext')
-        
-        # 2. Ô copy Số và Chữ (nếu có tính tổng)
-        if show_total_text and total_display_label is not None:
-            st.code(fmt_vn(total_display_value), language='plaintext')
+        if show_total_text and total_display_label:
+            st.code(fmt_val, language='plaintext')
             st.code(doc_so_thanh_chu(total_display_value), language='plaintext')
+            
+        st.markdown("<div style='margin-top: 5px; font-size: 0.9em; color: #64748b; text-align: right;'><b>📋 Copy nhanh Bảng, Số tiền, Bằng chữ</b></div>", unsafe_allow_html=True)
+
+def get_available_columns_for_tabs(df):
+    return [col for col in df.columns if col not in (COL.KH_DISPLAY, COL.KH_SEARCH, COL.KH_CODE, COL.SORT_DATE) and str(col).upper() != COL.STT]
+
+def render_tab_chi_tiet(filtered_df, available_columns, selected_kh, selected_hd):
+    desired_defaults = [COL.NGAY_HD, COL.SO_CT, COL.TEN_HH, COL.DVT, COL.SO_LUONG, COL.DON_GIA_CO_VAT, COL.THANH_TIEN_CO_VAT, COL.NHA_SX]
+    default_cols = [col for col in desired_defaults if col in available_columns] or available_columns[:8]
+
+    with st.expander("Cột hiển thị", expanded=False):
+        selected_columns = st.multiselect("Cột hiển thị (có thể chuyển vị trí cột)", options=available_columns, default=default_cols, key="multi_t1")
+
+    st.write("")
+    render_result_table(filtered_df, selected_columns, "chi_tiet_hoa_don_hang", default_file_name=f"chi_tiet_hoa_don_hang_{selected_kh}_{selected_hd or 'tat_ca'}")
+
+def render_tab_hang_hoa(filtered_df, available_columns, selected_kh, selected_hd):
+    desired_defaults = [COL.TEN_HH, COL.DVT, COL.SO_LUONG, COL.DON_GIA_CO_VAT, COL.THANH_TIEN_CO_VAT, COL.NHA_SX]
+    default_cols = [col for col in desired_defaults if col in available_columns] or available_columns[:6]
+
+    with st.expander("Cột hiển thị", expanded=False):
+        selected_columns = st.multiselect("Cột hiển thị (có thể chuyển vị trí cột)", options=available_columns, default=default_cols, key="multi_t2")
+
+    final_df = aggregate_dataframe(filtered_df, COL.MA_HH) if COL.MA_HH in filtered_df.columns else filtered_df
+    st.write("")
+    render_result_table(final_df, selected_columns, "bang_hang_hoa", default_file_name=f"bang_hang_hoa_{selected_kh}_{selected_hd or 'tat_ca'}")
+
+def render_tab_hoa_don(filtered_df, available_columns, selected_kh, selected_hd):
+    desired_defaults = [COL.NGAY_HD, COL.SO_CT, COL.THANH_TIEN_CO_VAT]
+    default_cols = [col for col in desired_defaults if col in available_columns] or available_columns[:3]
+
+    with st.expander("Cột hiển thị", expanded=False):
+        selected_columns = st.multiselect("Cột hiển thị (có thể chuyển vị trí cột)", options=available_columns, default=default_cols, key="multi_t3")
+
+    final_df = aggregate_dataframe(filtered_df, COL.SO_CT, keep_sort_order=True) if COL.SO_CT in filtered_df.columns else filtered_df
+    st.write("")
+    render_result_table(final_df, selected_columns, "danh_sach_hoa_don", default_file_name=f"danh_sach_hoa_don_{selected_kh}_{selected_hd or 'tat_ca'}")
+
+def render_tab_bang_08a(filtered_df, selected_kh, selected_hd):
+    final_df = build_bang_08a(filtered_df)
+    available_columns = [COL.SO_CT, COL.NGAY_HD, COL.NOI_DUNG, COL.DVT, COL.SO_LUONG, COL.DON_GIA, COL.THANH_TIEN]
+
+    with st.expander("Cột hiển thị", expanded=False):
+        selected_columns = st.multiselect("Cột hiển thị (có thể chuyển vị trí cột)", options=available_columns, default=available_columns, key="multi_t4")
+        
+    st.write("")
+    render_result_table(final_df, selected_columns, "bang_08a", default_file_name=f"bang_08a_{selected_kh}_{selected_hd or 'tat_ca'}")
 
 # ==========================================
-# GIAO DIỆN CHÍNH
+# 4. GIAO DIỆN CHÍNH (MAIN BLOCKS)
 # ==========================================
-main_tab_filter, main_tab_merge = st.tabs(["📊 Lọc Super SM2057 (NT)", "🧩 Gộp file SM2057"])
-
-with main_tab_filter:
+def render_filter_section():
     st.header("1. Tải dữ liệu lên")
-    if "filter_uploader_nonce" not in st.session_state:
-        st.session_state["filter_uploader_nonce"] = 0
+    if "filter_uploader_nonce" not in st.session_state: st.session_state["filter_uploader_nonce"] = 0
+    
     upload_col, clear_col = st.columns([1, 0.06])
     with upload_col:
-        uploaded_files = st.file_uploader(
-            "Kéo thả, thêm nhiều file SM2057 (NT)",
-            type=['csv', 'xlsx', 'xls'],
-            accept_multiple_files=True,
-            key=f"filter_uploader_{st.session_state['filter_uploader_nonce']}"
-        )
+        uploaded_files = st.file_uploader("Kéo thả, thêm nhiều file SM2057 (NT)", type=['csv', 'xlsx', 'xls'], accept_multiple_files=True, key=f"filter_uploader_{st.session_state['filter_uploader_nonce']}")
     with clear_col:
-        clear_upload_container = st.container(key="clear_upload_btn_filter")
-        with clear_upload_container:
-            st.button(
-                "↻",
-                key="clear_uploaded_files_btn",
-                width="stretch",
-                help="Xóa dữ liệu đã tải",
-                on_click=clear_uploaded_filter_data
-            )
+        with st.container(key="clear_upload_btn_filter"):
+            st.button("↻", key="clear_uploaded_files_btn", use_container_width=True, help="Xóa dữ liệu đã tải", on_click=clear_uploaded_filter_data)
 
     if uploaded_files:
         with st.spinner('Đang đọc và gộp dữ liệu...'):
@@ -613,249 +568,116 @@ with main_tab_filter:
             
         if df is not None:
             st.success(f"✅ Đã gộp thành công {len(uploaded_files)} file. Tổng số dòng dữ liệu: {len(df)}")
-
             st.header("2. Lọc khách hàng & Hợp đồng")
 
-            filter_bar = st.container(key="filter_bar")
-            with filter_bar:
+            with st.container(key="filter_bar"):
                 col1, col2, col3, col4 = st.columns([1.2, 1.2, 1, 0.22])
                 with col1:
-                    kh_lookup = (
-                        df[['KH_Code', 'KH_Display', 'KH_Search']]
-                        .dropna(subset=['KH_Code'])
-                        .groupby('KH_Code', as_index=False)
-                        .agg({'KH_Display': 'first', 'KH_Search': 'first'})
-                        .sort_values(by='KH_Display')
-                    )
-                    kh_options = ["Tất cả|||tat ca"] + [
-                        f"{row.KH_Code}|||{row.KH_Display}|||{normalize_text(row.KH_Search)}"
-                        for row in kh_lookup.itertuples(index=False)
-                    ]
-                    selected_kh_option = st.selectbox(
-                        "1️⃣ Chọn khách hàng:",
-                        kh_options,
-                        format_func=lambda value: "Tất cả" if value == "Tất cả|||tat ca" else value.split("|||", 2)[1],
-                        key="filter_selected_kh",
-                        on_change=reset_month_filter
-                    )
+                    kh_lookup = df[[COL.KH_CODE, COL.KH_DISPLAY, COL.KH_SEARCH]].dropna(subset=[COL.KH_CODE]).groupby(COL.KH_CODE, as_index=False).agg({COL.KH_DISPLAY: 'first', COL.KH_SEARCH: 'first'}).sort_values(by=COL.KH_DISPLAY)
+                    kh_options = ["Tất cả|||tat ca"] + [f"{row.KH_Code}|||{row.KH_Display}|||{normalize_text(row.KH_Search)}" for row in kh_lookup.itertuples(index=False)]
+                    selected_kh_option = st.selectbox("1️⃣ Chọn khách hàng:", kh_options, format_func=lambda v: "Tất cả" if v == "Tất cả|||tat ca" else v.split("|||", 2)[1], key="filter_selected_kh", on_change=reset_month_filter)
                     selected_kh = "Tất cả" if selected_kh_option == "Tất cả|||tat ca" else selected_kh_option.split("|||", 2)[0]
 
-                filtered_df = df[df['KH_Code'] == selected_kh] if selected_kh != "Tất cả" else df
+                filtered_df = df[df[COL.KH_CODE] == selected_kh] if selected_kh != "Tất cả" else df
 
                 with col2:
-                    hd_list = ["Tất cả"] + list(filtered_df['Số hợp đồng'].dropna().unique())
+                    hd_list = ["Tất cả"] + list(filtered_df[COL.SO_HD].dropna().unique())
                     selected_hd = st.selectbox("2️⃣ Chọn Số Hợp Đồng:", hd_list, key="filter_selected_hd")
 
-                if selected_hd != "Tất cả":
-                    filtered_df = filtered_df[filtered_df['Số hợp đồng'] == selected_hd]
+                if selected_hd != "Tất cả": filtered_df = filtered_df[filtered_df[COL.SO_HD] == selected_hd]
 
                 month_options = []
-                if SORT_DATE_COL in filtered_df.columns:
-                    month_values = filtered_df[SORT_DATE_COL].dropna().dt.strftime('%m/%Y').unique().tolist()
-                    month_options = sorted(month_values, key=lambda x: (int(x[3:]), int(x[:2])))
+                if COL.SORT_DATE in filtered_df.columns:
+                    month_options = sorted(filtered_df[COL.SORT_DATE].dropna().dt.strftime('%m/%Y').unique().tolist(), key=lambda x: (int(x[3:]), int(x[:2])))
 
                 with col3:
-                    selected_months = st.multiselect(
-                        "3️⃣ Chọn tháng: (Mặc định tất cả)",
-                        month_options,
-                        placeholder="Chọn Tháng nếu muốn",
-                        key="filter_selected_months"
-                    )
+                    selected_months = st.multiselect("3️⃣ Chọn tháng: (Mặc định tất cả)", month_options, placeholder="Chọn Tháng nếu muốn", key="filter_selected_months")
 
                 with col4:
                     st.write("")
-                    st.button(
-                        "↻",
-                        key="filter_reset_btn",
-                        width='stretch',
-                        help="Reset bộ lọc",
-                        on_click=reset_filter_state
-                    )
+                    st.button("↻", key="filter_reset_btn", use_container_width=True, help="Reset bộ lọc", on_click=reset_filter_state)
 
-                if selected_months and SORT_DATE_COL in filtered_df.columns:
-                    filtered_df = filtered_df[filtered_df[SORT_DATE_COL].dt.strftime('%m/%Y').isin(selected_months)]
+                if selected_months and COL.SORT_DATE in filtered_df.columns:
+                    filtered_df = filtered_df[filtered_df[COL.SORT_DATE].dt.strftime('%m/%Y').isin(selected_months)]
 
             st.caption(f"🔍 Dữ liệu hiện tại: **{len(filtered_df)}** dòng khớp điều kiện.")
-
-            tab1, tab2, tab3, tab4 = st.tabs(["📦 Bảng Chi tiết Hoá đơn - Hàng", "🛒 Bảng Hàng hoá", "🧾 Bảng Hóa đơn", "📄 Bảng 08a"])
             
-            with tab1:
-                available_columns_t1 = [col for col in df.columns if col not in ('KH_Display', 'KH_Search', 'KH_Code', SORT_DATE_COL) and str(col).upper() != 'STT']
-                desired_defaults_t1 = ['Ngày hóa đơn', 'Số chứng từ ngoại', 'Tên HH', 'ĐVT', 'Số lượng', 'Đơn giá có VAT', 'Thành tiền có VAT', 'Nhà SX']
-                default_cols_t1 = [col for col in desired_defaults_t1 if col in available_columns_t1]
-                if not default_cols_t1:
-                    default_cols_t1 = available_columns_t1[:8]
+            tab1, tab2, tab3, tab4 = st.tabs(["📦 Bảng Chi tiết Hoá đơn - Hàng", "🛒 Bảng Hàng hoá", "🧾 Bảng Hóa đơn", "📄 Bảng 08a"])
+            available_cols = get_available_columns_for_tabs(df)
+            
+            with tab1: render_tab_chi_tiet(filtered_df, available_cols, selected_kh, selected_hd)
+            with tab2: render_tab_hang_hoa(filtered_df, available_cols, selected_kh, selected_hd)
+            with tab3: render_tab_hoa_don(filtered_df, available_cols, selected_kh, selected_hd)
+            with tab4: render_tab_bang_08a(filtered_df, selected_kh, selected_hd)
 
-                with st.expander("Cột hiển thị", expanded=False):
-                    selected_columns_t1 = st.multiselect(
-                        "Cột hiển thị (có thể chuyển vị trí cột ở bảng)",
-                        options=available_columns_t1,
-                        default=default_cols_t1,
-                        key="multi_t1"
-                    )
 
-                final_df_t1 = filtered_df
-                st.write("")
-                default_file_name_t1 = f"chi_tiet_hoa_don_hang_{selected_kh}_{selected_hd or 'tat_ca'}"
-                render_result_table(final_df_t1, selected_columns_t1, "chi_tiet_hoa_don_hang", default_file_name=default_file_name_t1)
-
-            with tab2:
-                available_columns_t2 = [col for col in df.columns if col not in ('KH_Display', 'KH_Search', 'KH_Code', SORT_DATE_COL) and str(col).upper() != 'STT']
-                desired_defaults_t2 = ['Tên HH', 'ĐVT', 'Số lượng', 'Đơn giá có VAT', 'Thành tiền có VAT', 'Nhà SX']
-                default_cols_t2 = [col for col in desired_defaults_t2 if col in available_columns_t2]
-                if not default_cols_t2:
-                    default_cols_t2 = available_columns_t2[:6]
-
-                with st.expander("Cột hiển thị", expanded=False):
-                    selected_columns_t2 = st.multiselect(
-                        "Cột hiển thị (có thể chuyển vị trí cột ở bảng)",
-                        options=available_columns_t2,
-                        default=default_cols_t2,
-                        key="multi_t2"
-                    )
-
-                final_df_t2 = filtered_df
-                group_col_t2 = 'Mã HH'
-                if group_col_t2 in final_df_t2.columns:
-                    final_df_t2 = aggregate_dataframe(final_df_t2, group_col_t2)
-
-                st.write("")
-                default_file_name_t2 = f"bang_hang_hoa_{selected_kh}_{selected_hd or 'tat_ca'}"
-                render_result_table(final_df_t2, selected_columns_t2, "bang_hang_hoa", default_file_name=default_file_name_t2)
-
-            with tab3:
-                available_columns_t3 = [col for col in df.columns if col not in ('KH_Display', 'KH_Search', 'KH_Code', SORT_DATE_COL) and str(col).upper() != 'STT']
-                desired_defaults_t3 = ['Ngày hóa đơn', 'Số chứng từ ngoại', 'Thành tiền có VAT']
-                default_cols_t3 = [col for col in desired_defaults_t3 if col in available_columns_t3]
-                if not default_cols_t3:
-                    default_cols_t3 = available_columns_t3[:3]
-
-                with st.expander("Cột hiển thị", expanded=False):
-                    selected_columns_t3 = st.multiselect(
-                        "Cột hiển thị (có thể chuyển vị trí cột ở bảng)",
-                        options=available_columns_t3,
-                        default=default_cols_t3,
-                        key="multi_t3"
-                    )
-
-                final_df_t3 = filtered_df
-                group_col_t3 = 'Số chứng từ ngoại'
-                if group_col_t3 in final_df_t3.columns:
-                    final_df_t3 = aggregate_dataframe(final_df_t3, group_col_t3, keep_sort_order=True)
-
-                st.write("")
-                default_file_name_t3 = f"danh_sach_hoa_don_{selected_kh}_{selected_hd or 'tat_ca'}"
-                render_result_table(final_df_t3, selected_columns_t3, "danh_sach_hoa_don", default_file_name=default_file_name_t3)
-
-            with tab4:
-                final_df_t4 = build_bang_08a(filtered_df)
-                available_columns_t4 = [
-                    'Số chứng từ ngoại', 'Ngày hóa đơn', 'Nội dung công việc',
-                    'Đơn vị tính', 'Số lượng', 'Đơn giá', 'Thành tiền'
-                ]
-
-                with st.expander("Cột hiển thị", expanded=False):
-                    selected_columns_t4 = st.multiselect(
-                        "Cột hiển thị (có thể chuyển vị trí cột ở bảng)",
-                        options=available_columns_t4,
-                        default=available_columns_t4,
-                        key="multi_t4"
-                    )
-                st.write("")
-                default_file_name_t4 = f"bang_08a_{selected_kh}_{selected_hd or 'tat_ca'}"
-                render_result_table(final_df_t4, selected_columns_t4, "bang_08a", default_file_name=default_file_name_t4)
-
-with main_tab_merge:
+def render_merge_section():
     st.header("Làm sạch & Gộp file Excel giống nhau")
-    if "merge_uploader_nonce" not in st.session_state:
-        st.session_state["merge_uploader_nonce"] = 0
+    if "merge_uploader_nonce" not in st.session_state: st.session_state["merge_uploader_nonce"] = 0
+    
     merge_upload_col, merge_clear_col = st.columns([1, 0.06])
     with merge_upload_col:
-        merge_files = st.file_uploader(
-            "Kéo thả nhiều file Excel vào đây (.xlsx, .xls)",
-            type=['xlsx', 'xls'],
-            accept_multiple_files=True,
-            key=f"merge_uploader_{st.session_state['merge_uploader_nonce']}"
-        )
+        merge_files = st.file_uploader("Kéo thả nhiều file Excel vào đây (.xlsx, .xls)", type=['xlsx', 'xls'], accept_multiple_files=True, key=f"merge_uploader_{st.session_state['merge_uploader_nonce']}")
     with merge_clear_col:
-        clear_upload_container = st.container(key="clear_upload_btn_merge")
-        with clear_upload_container:
-            st.button(
-                "↻",
-                key="clear_uploaded_merge_files_btn",
-                width="stretch",
-                help="Xóa dữ liệu đã tải",
-                on_click=clear_uploaded_merge_data
-            )
+        with st.container(key="clear_upload_btn_merge"):
+            st.button("↻", key="clear_uploaded_merge_files_btn", use_container_width=True, help="Xóa dữ liệu đã tải", on_click=clear_uploaded_merge_data)
 
     if merge_files:
         merge_fingerprint = get_uploaded_files_fingerprint(merge_files)
         cache_key = "merge_cache_fingerprint"
+        
         if st.session_state.get(cache_key) != merge_fingerprint:
             progress_bar = st.progress(0, text="Sẵn sàng xử lý")
             status_placeholder = st.empty()
-            merged_df, merge_errors, detected_date_col = merge_sm2057_files(
-                merge_files,
-                progress_bar=progress_bar,
-                status_placeholder=status_placeholder
-            )
+            merged_df, merge_errors, detected_date_col = merge_sm2057_files(merge_files, progress_bar, status_placeholder)
 
             progress_bar.progress(1.0, text="Đã hoàn tất xử lý")
             status_placeholder.empty()
-            st.session_state[cache_key] = merge_fingerprint
-            st.session_state["merge_cached_df"] = merged_df
-            st.session_state["merge_cached_errors"] = merge_errors
-            st.session_state["merge_cached_date_col"] = detected_date_col
+            st.session_state.update({cache_key: merge_fingerprint, "merge_cached_df": merged_df, "merge_cached_errors": merge_errors, "merge_cached_date_col": detected_date_col})
         else:
-            merged_df = st.session_state.get("merge_cached_df")
-            merge_errors = st.session_state.get("merge_cached_errors", [])
-            detected_date_col = st.session_state.get("merge_cached_date_col")
+            merged_df, merge_errors, detected_date_col = st.session_state.get("merge_cached_df"), st.session_state.get("merge_cached_errors", []), st.session_state.get("merge_cached_date_col")
 
         if merged_df is not None:
             st.success(f"✅ Đã gộp thành công {len(merge_files)} file.")
             st.caption(f"📌 Tổng số dòng dữ liệu thu thập được: **{len(merged_df)}**")
-            if detected_date_col:
-                st.caption(f"🗓️ Đã phát hiện cột ngày hóa đơn để sắp xếp: **{detected_date_col}**")
-
+            if detected_date_col: st.caption(f"🗓️ Đã phát hiện cột ngày hóa đơn để sắp xếp: **{detected_date_col}**")
             if merge_errors:
                 st.warning("Một số file không đọc được:")
-                for error in merge_errors:
-                    st.write(f"- {error}")
+                for error in merge_errors: st.write(f"- {error}")
 
-            merge_download_name = st.text_input(
-                "Tên file tải về",
-                value=ensure_xlsx_extension(f"DuLieu_DaGop_{datetime.now().strftime('%Y-%m-%d')}"),
-                key="download_name_merged_sm2057"
-            )
-            st.download_button(
-                label="📥 Tải về DuLieu_DaGop.xlsx",
-                data=build_export_excel(merged_df),
-                file_name=ensure_xlsx_extension(merge_download_name),
-                mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-                key="download_merged_sm2057"
-            )
-
+            merge_download_name = st.text_input("Tên file tải về", value=ensure_xlsx_extension(f"DuLieu_DaGop_{datetime.now().strftime('%Y-%m-%d')}"), key="download_name_merged_sm2057")
+            st.download_button(label="📥 Tải về DuLieu_DaGop.xlsx", data=build_export_excel(merged_df), file_name=ensure_xlsx_extension(merge_download_name), mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', key="download_merged_sm2057")
             st.subheader("Xem trước dữ liệu")
             st.dataframe(merged_df.head(50), width=1500, hide_index=True)
         else:
             st.error("Không thể gộp dữ liệu từ các file đã tải lên.")
             if merge_errors:
-                for error in merge_errors:
-                    st.write(f"- {error}")
+                for error in merge_errors: st.write(f"- {error}")
     else:
-        st.session_state.pop("merge_cache_fingerprint", None)
-        st.session_state.pop("merge_cached_df", None)
-        st.session_state.pop("merge_cached_errors", None)
-        st.session_state.pop("merge_cached_date_col", None)
+        clear_uploaded_merge_data() # Reset nếu xóa file
 
 # ==========================================
-# 5. FOOTER (CREDIT)
+# 5. ĐIỂM BẮT ĐẦU (ENTRY POINT)
 # ==========================================
-st.markdown(
-    """
-    <div style="text-align: center; margin-top: 60px; padding-bottom: 20px; color: #888888; font-size: 14px;">
-        Thiết kế: Nguyễn Văn Dũng ❤️ 0978.777.191
-    </div>
-    """, 
-    unsafe_allow_html=True
-)
+def main():
+    setup_page_config()
+    
+    main_tab_filter, main_tab_merge = st.tabs(["📊 Lọc Super SM2057 (NT)", "🧩 Gộp file SM2057"])
+    
+    with main_tab_filter:
+        render_filter_section()
+        
+    with main_tab_merge:
+        render_merge_section()
+
+    st.markdown(
+        """
+        <div style="text-align: center; margin-top: 60px; padding-bottom: 20px; color: #888888; font-size: 14px;">
+            Thiết kế: Nguyễn Văn Dũng ❤️ 0978.777.191
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+
+if __name__ == "__main__":
+    main()
