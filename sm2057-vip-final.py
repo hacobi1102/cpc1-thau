@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import streamlit as st
 import pandas as pd
 import io
@@ -46,7 +47,7 @@ EXTRA_FORMAT_COLS = [COL.DON_GIA, COL.THANH_TIEN]
 
 def setup_page_config():
     st.set_page_config(page_title="Xử lý dữ liệu Super SM2057", layout="wide")
-    st.title("📊 CPC1 - Super SM2057 (NT)")
+    st.title("\U0001F4CA CPC1 - Super SM2057 (NT)")
     st.markdown(
         """
         <style>
@@ -295,7 +296,9 @@ def merge_sm2057_files(uploaded_files, progress_bar=None, status_placeholder=Non
 
         try:
             current_df = read_merge_source_file(file)
-            current_df[COL.NGUON_FILE] = file.name
+            
+            # ĐÃ XÓA DÒNG TẠO CỘT "NGUỒN FILE GỐC" Ở ĐÂY!
+            
             date_column = find_invoice_date_column(current_df.columns)
             month_sort_key = get_file_month_sort_key(current_df, date_column)
 
@@ -434,7 +437,23 @@ def render_result_table(final_df, selected_columns, tab_key, show_total_text=Tru
         total_display_value = display_df[COL.THANH_TIEN].sum()
         total_display_label = f'Tổng {COL.THANH_TIEN}'
     
+    # FIX PYARROW ERROR: Ép kiểu các cột datetime thành chuỗi chuẩn %d/%m/%Y trước khi lấp đầy NaN
+    for col in display_df.columns:
+        if pd.api.types.is_datetime64_any_dtype(display_df[col]) or display_df[col].apply(lambda x: isinstance(x, datetime)).any():
+            display_df[col] = pd.to_datetime(display_df[col], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
+
     export_df = display_df.fillna("").copy()
+    
+    # FIX: Chuyển kiểu dữ liệu an toàn để Export Excel
+    def clean_numeric(x):
+        try:
+            if pd.notna(x) and type(x) != str and x == int(x):
+                return int(x)
+        except: pass
+        return x
+
+    for col in export_df.columns:
+        export_df[col] = export_df[col].apply(clean_numeric)
     
     def format_vn_number(x):
         try: return f"{float(x):,.0f}".replace(",", ".") if pd.notna(x) and x != "" else ""
@@ -448,11 +467,12 @@ def render_result_table(final_df, selected_columns, tab_key, show_total_text=Tru
     num_cols = [c for c in format_cols if c in visual_df.columns]
     st.dataframe(
         visual_df.style.set_properties(subset=num_cols, **{'text-align': 'right'}),
-        use_container_width=True, hide_index=True,
+        width='stretch', hide_index=True,
         column_config={COL.STT: st.column_config.Column(width="small")}
     )
     
-    st.write("") # Tạo khoảng trống
+    # --- Đưa dòng đếm số lượng xuống ngay dưới bảng ---
+    st.caption(f"\U0001F50D Dữ liệu hiện tại: **{len(display_df)}** dòng.")
     
     # CHIA CỘT CHÍNH [8, 2]
     col_main, col_copy = st.columns([8, 2])
@@ -467,41 +487,46 @@ def render_result_table(final_df, selected_columns, tab_key, show_total_text=Tru
         if show_total_text and total_display_label:
             st.markdown(f"""
             <div style="background-color: #f8fafc; padding: 12px 20px; border-radius: 8px; border-left: 5px solid #0ea5e9; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <span style="font-size: 1.1em;"><strong>💰 {total_display_label}:</strong></span>
+                <span style="font-size: 1.1em;"><strong>&#128176; {total_display_label}:</strong></span>
                 <span style="color:#dc2626; font-size: 1.3em; font-weight: bold; margin-left: 8px;">{fmt_val}</span> VNĐ <br>
-                <span style="font-size: 1em; color: #475569; margin-top: 5px; display: inline-block;"><strong>✍️ Bằng chữ:</strong> <i>{doc_so_thanh_chu(total_display_value)}</i></span>
+                <span style="font-size: 1em; color: #475569; margin-top: 5px; display: inline-block;"><strong>&#9997; Bằng chữ:</strong> <i>{doc_so_thanh_chu(total_display_value)}</i></span>
             </div>
             """, unsafe_allow_html=True)
 
         # --- 2. KHU VỰC TẢI VỀ ---
         dl_col1, dl_col2 = st.columns([4, 2])
         with dl_col1:
+            dynamic_input_key = f"dl_input_{tab_key}_{sanitize_filename(str(default_file_name))}"
             file_name_value = st.text_input(
                 "Tên file tải về:",
                 value=ensure_xlsx_extension(default_file_name or f'ket_qua_{tab_key}'),
-                key=f"download_name_{tab_key}"
+                key=dynamic_input_key
             )
             
         with dl_col2:
             st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
             st.download_button(
-                label="📥 Tải Excel (.xlsx)",
+                label="\U0001F4E5 Tải Excel (.xlsx)",
                 data=build_export_excel(export_df),
                 file_name=ensure_xlsx_extension(file_name_value),
                 mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                 key=f"dl_btn_{tab_key}",
-                use_container_width=True
+                width='stretch'
             )
             
     with col_copy:
         # --- 3. KHU VỰC COPY ---
-        st.code(export_df.to_csv(sep='\t', index=False), language='plaintext')
+        # Thêm header=False để không lấy dòng tiêu đề cột
+        # Dùng regex cắt gọt mọi đuôi .0 do Pandas ép kiểu phát sinh
+        tsv_data = export_df.to_csv(sep='\t', index=False, header=False)
+        tsv_data = re.sub(r'(?<=\d)\.0+(?=\t|\r|\n|$)', '', tsv_data)
+        st.code(tsv_data, language='plaintext')
         
         if show_total_text and total_display_label:
             st.code(fmt_val, language='plaintext')
             st.code(doc_so_thanh_chu(total_display_value), language='plaintext')
             
-        st.markdown("<div style='margin-top: 5px; font-size: 0.9em; color: #64748b; text-align: right;'><b>📋 Copy nhanh Bảng, Số tiền, Bằng chữ</b></div>", unsafe_allow_html=True)
+        st.markdown("<div style='margin-top: 5px; font-size: 0.9em; color: #64748b; text-align: right;'><b>&#128203; Copy nhanh Bảng, Số tiền, Bằng chữ</b></div>", unsafe_allow_html=True)
 
 def get_available_columns_for_tabs(df):
     return [col for col in df.columns if col not in (COL.KH_DISPLAY, COL.KH_SEARCH, COL.KH_CODE, COL.SORT_DATE) and str(col).upper() != COL.STT]
@@ -552,37 +577,47 @@ def render_tab_bang_08a(filtered_df, selected_kh, selected_hd):
 # 4. GIAO DIỆN CHÍNH (MAIN BLOCKS)
 # ==========================================
 def render_filter_section():
-    st.header("1. Tải dữ liệu lên")
+    st.markdown("""
+    <div style="background-color: #f1f5f9; border-radius: 0px; margin-bottom: 12px;">
+        <h3 style="margin: 0; color: #0f172a; font-size: 1.2em;">1&#65039;&#8419; Tải dữ liệu lên</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
     if "filter_uploader_nonce" not in st.session_state: st.session_state["filter_uploader_nonce"] = 0
     
     upload_col, clear_col = st.columns([1, 0.06])
     with upload_col:
-        uploaded_files = st.file_uploader("Kéo thả, thêm nhiều file SM2057 (NT)", type=['csv', 'xlsx', 'xls'], accept_multiple_files=True, key=f"filter_uploader_{st.session_state['filter_uploader_nonce']}")
+        uploaded_files = st.file_uploader("Kéo thả hoặc chọn nhiều file SM2057 (NT)", type=['csv', 'xlsx', 'xls'], accept_multiple_files=True, key=f"filter_uploader_{st.session_state['filter_uploader_nonce']}")
     with clear_col:
         with st.container(key="clear_upload_btn_filter"):
-            st.button("↻", key="clear_uploaded_files_btn", use_container_width=True, help="Xóa dữ liệu đã tải", on_click=clear_uploaded_filter_data)
+            st.button("\u21BB", key="clear_uploaded_files_btn", width='stretch', help="Xóa dữ liệu đã tải", on_click=clear_uploaded_filter_data)
 
     if uploaded_files:
         with st.spinner('Đang đọc và gộp dữ liệu...'):
             df = process_uploaded_files(uploaded_files)
             
         if df is not None:
-            st.success(f"✅ Đã gộp thành công {len(uploaded_files)} file. Tổng số dòng dữ liệu: {len(df)}")
-            st.header("2. Lọc khách hàng & Hợp đồng")
+            st.success(f"\u2705 Đã gộp thành công {len(uploaded_files)} file. Tổng số dòng dữ liệu: {len(df)}")
+            
+            st.markdown("""
+            <div style="background-color: #f1f5f9; border-radius: 0px; margin-top: 15px; margin-bottom: 12px;">
+                <h3 style="margin: 0; color: #0f172a; font-size: 1.2em;">2&#65039;&#8419; Bộ lọc dữ liệu</h3>
+            </div>
+            """, unsafe_allow_html=True)
 
             with st.container(key="filter_bar"):
                 col1, col2, col3, col4 = st.columns([1.2, 1.2, 1, 0.22])
                 with col1:
                     kh_lookup = df[[COL.KH_CODE, COL.KH_DISPLAY, COL.KH_SEARCH]].dropna(subset=[COL.KH_CODE]).groupby(COL.KH_CODE, as_index=False).agg({COL.KH_DISPLAY: 'first', COL.KH_SEARCH: 'first'}).sort_values(by=COL.KH_DISPLAY)
                     kh_options = ["Tất cả|||tat ca"] + [f"{row.KH_Code}|||{row.KH_Display}|||{normalize_text(row.KH_Search)}" for row in kh_lookup.itertuples(index=False)]
-                    selected_kh_option = st.selectbox("1️⃣ Chọn khách hàng:", kh_options, format_func=lambda v: "Tất cả" if v == "Tất cả|||tat ca" else v.split("|||", 2)[1], key="filter_selected_kh", on_change=reset_month_filter)
+                    selected_kh_option = st.selectbox("1\uFE0F\u20E3 Khách hàng:", kh_options, format_func=lambda v: "Tất cả" if v == "Tất cả|||tat ca" else v.split("|||", 2)[1], key="filter_selected_kh", on_change=reset_month_filter)
                     selected_kh = "Tất cả" if selected_kh_option == "Tất cả|||tat ca" else selected_kh_option.split("|||", 2)[0]
 
                 filtered_df = df[df[COL.KH_CODE] == selected_kh] if selected_kh != "Tất cả" else df
 
                 with col2:
                     hd_list = ["Tất cả"] + list(filtered_df[COL.SO_HD].dropna().unique())
-                    selected_hd = st.selectbox("2️⃣ Chọn Số Hợp Đồng:", hd_list, key="filter_selected_hd")
+                    selected_hd = st.selectbox("2\uFE0F\u20E3 Số hợp đồng:", hd_list, key="filter_selected_hd")
 
                 if selected_hd != "Tất cả": filtered_df = filtered_df[filtered_df[COL.SO_HD] == selected_hd]
 
@@ -591,28 +626,40 @@ def render_filter_section():
                     month_options = sorted(filtered_df[COL.SORT_DATE].dropna().dt.strftime('%m/%Y').unique().tolist(), key=lambda x: (int(x[3:]), int(x[:2])))
 
                 with col3:
-                    selected_months = st.multiselect("3️⃣ Chọn tháng: (Mặc định tất cả)", month_options, placeholder="Chọn Tháng nếu muốn", key="filter_selected_months")
+                    selected_months = st.multiselect("3\uFE0F\u20E3 Tháng xuất hóa đơn:", month_options, placeholder="Mặc định: Tất cả", key="filter_selected_months")
 
                 with col4:
                     st.write("")
-                    st.button("↻", key="filter_reset_btn", use_container_width=True, help="Reset bộ lọc", on_click=reset_filter_state)
+                    st.button("\u21BB", key="filter_reset_btn", width='stretch', help="Đặt lại bộ lọc", on_click=reset_filter_state)
 
                 if selected_months and COL.SORT_DATE in filtered_df.columns:
                     filtered_df = filtered_df[filtered_df[COL.SORT_DATE].dt.strftime('%m/%Y').isin(selected_months)]
-
-            st.caption(f"🔍 Dữ liệu hiện tại: **{len(filtered_df)}** dòng khớp điều kiện.")
-            
-            tab1, tab2, tab3, tab4 = st.tabs(["📦 Bảng Chi tiết Hoá đơn - Hàng", "🛒 Bảng Hàng hoá", "🧾 Bảng Hóa đơn", "📄 Bảng 08a"])
-            available_cols = get_available_columns_for_tabs(df)
-            
-            with tab1: render_tab_chi_tiet(filtered_df, available_cols, selected_kh, selected_hd)
-            with tab2: render_tab_hang_hoa(filtered_df, available_cols, selected_kh, selected_hd)
-            with tab3: render_tab_hoa_don(filtered_df, available_cols, selected_kh, selected_hd)
-            with tab4: render_tab_bang_08a(filtered_df, selected_kh, selected_hd)
+           
+            # TỐI ƯU HIỆU NĂNG: Ẩn bảng nếu chưa chọn Khách hàng / Hợp đồng
+            if selected_kh == "Tất cả" and selected_hd == "Tất cả":
+                st.markdown("""
+                <div style="background-color: #fffbeb; padding: 15px 20px; border-radius: 8px; border-left: 5px solid #f59e0b; margin-top: 20px;">
+                    <span style="color: #b45309; font-size: 1.1em;">&#128161; <b>Mẹo tối ưu tốc độ:</b> Vui lòng chọn một <b>Khách hàng</b> hoặc <b>Số hợp đồng</b> cụ thể ở bộ lọc phía dưới để xem dữ liệu.<br>
+                    <span style="font-size: 0.9em;"><i>(Hệ thống tạm ẩn chế độ xem "Tất cả" để tránh giật lag trình duyệt khi bạn gộp nhiều file Excel nặng cùng lúc. Nếu muốn tải toàn bộ dữ liệu gốc đã gộp, hãy dùng tính năng ở tab <b>Làm sạch & Gộp file</b>)</i></span></span>
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                tab1, tab2, tab3, tab4 = st.tabs(["\U0001F4E6 Bảng Chi tiết Hoá đơn - Hàng", "\U0001F6D2 Bảng Hàng hoá", "\U0001F9FE Bảng Hóa đơn", "\U0001F4C4 Bảng 08a"])
+                available_cols = get_available_columns_for_tabs(df)
+                
+                with tab1: render_tab_chi_tiet(filtered_df, available_cols, selected_kh, selected_hd)
+                with tab2: render_tab_hang_hoa(filtered_df, available_cols, selected_kh, selected_hd)
+                with tab3: render_tab_hoa_don(filtered_df, available_cols, selected_kh, selected_hd)
+                with tab4: render_tab_bang_08a(filtered_df, selected_kh, selected_hd)
 
 
 def render_merge_section():
-    st.header("Làm sạch & Gộp file Excel giống nhau")
+    st.markdown("""
+    <div style="background-color: #f1f5f9; border-radius: 0px; margin-bottom: 12px;">
+        <h3 style="margin: 0; color: #0f172a; font-size: 1.2em;">&#129513; Làm sạch & Gộp file Excel giống nhau</h3>
+    </div>
+    """, unsafe_allow_html=True)
+    
     if "merge_uploader_nonce" not in st.session_state: st.session_state["merge_uploader_nonce"] = 0
     
     merge_upload_col, merge_clear_col = st.columns([1, 0.06])
@@ -620,7 +667,7 @@ def render_merge_section():
         merge_files = st.file_uploader("Kéo thả nhiều file Excel vào đây (.xlsx, .xls)", type=['xlsx', 'xls'], accept_multiple_files=True, key=f"merge_uploader_{st.session_state['merge_uploader_nonce']}")
     with merge_clear_col:
         with st.container(key="clear_upload_btn_merge"):
-            st.button("↻", key="clear_uploaded_merge_files_btn", use_container_width=True, help="Xóa dữ liệu đã tải", on_click=clear_uploaded_merge_data)
+            st.button("\u21BB", key="clear_uploaded_merge_files_btn", width='stretch', help="Xóa dữ liệu đã tải", on_click=clear_uploaded_merge_data)
 
     if merge_files:
         merge_fingerprint = get_uploaded_files_fingerprint(merge_files)
@@ -638,15 +685,15 @@ def render_merge_section():
             merged_df, merge_errors, detected_date_col = st.session_state.get("merge_cached_df"), st.session_state.get("merge_cached_errors", []), st.session_state.get("merge_cached_date_col")
 
         if merged_df is not None:
-            st.success(f"✅ Đã gộp thành công {len(merge_files)} file.")
-            st.caption(f"📌 Tổng số dòng dữ liệu thu thập được: **{len(merged_df)}**")
-            if detected_date_col: st.caption(f"🗓️ Đã phát hiện cột ngày hóa đơn để sắp xếp: **{detected_date_col}**")
+            st.success(f"\u2705 Đã gộp thành công {len(merge_files)} file.")
+            st.caption(f"\U0001F4CC Tổng số dòng dữ liệu thu thập được: **{len(merged_df)}**")
+            if detected_date_col: st.caption(f"\U0001F5D3\uFE0F Đã phát hiện cột ngày hóa đơn để sắp xếp: **{detected_date_col}**")
             if merge_errors:
                 st.warning("Một số file không đọc được:")
                 for error in merge_errors: st.write(f"- {error}")
 
             merge_download_name = st.text_input("Tên file tải về", value=ensure_xlsx_extension(f"DuLieu_DaGop_{datetime.now().strftime('%Y-%m-%d')}"), key="download_name_merged_sm2057")
-            st.download_button(label="📥 Tải về DuLieu_DaGop.xlsx", data=build_export_excel(merged_df), file_name=ensure_xlsx_extension(merge_download_name), mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', key="download_merged_sm2057")
+            st.download_button(label="\U0001F4E5 Tải về DuLieu_DaGop.xlsx", data=build_export_excel(merged_df), file_name=ensure_xlsx_extension(merge_download_name), mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', key="download_merged_sm2057")
             st.subheader("Xem trước dữ liệu")
             st.dataframe(merged_df.head(50), width=1500, hide_index=True)
         else:
@@ -662,7 +709,7 @@ def render_merge_section():
 def main():
     setup_page_config()
     
-    main_tab_filter, main_tab_merge = st.tabs(["📊 Lọc Super SM2057 (NT)", "🧩 Gộp file SM2057"])
+    main_tab_filter, main_tab_merge = st.tabs(["\U0001F4CA Lọc Super SM2057 (NT)", "\U0001F9E9 Gộp file SM2057"])
     
     with main_tab_filter:
         render_filter_section()
@@ -673,7 +720,7 @@ def main():
     st.markdown(
         """
         <div style="text-align: center; margin-top: 60px; padding-bottom: 20px; color: #888888; font-size: 14px;">
-            Thiết kế: Nguyễn Văn Dũng ❤️ 0978.777.191
+            Thiết kế: Nguyễn Văn Dũng &#10084;&#65039; 0978.777.191
         </div>
         """, 
         unsafe_allow_html=True
