@@ -5,7 +5,6 @@ import io
 import re
 import unicodedata
 from datetime import datetime
-from difflib import SequenceMatcher
 
 # ==========================================
 # 1. CẤU HÌNH TRANG, BIẾN TOÀN CỤC & MAP TÊN CỘT
@@ -38,7 +37,6 @@ class COL:
     KH_SEARCH = 'KH_Search'
     KH_DISPLAY = 'KH_Display'
     SORT_DATE = '__sort_date'
-    NGUON_FILE = 'Nguồn_File_Gốc'
     STT = 'STT'
 
 GLOBAL_CALC_COLS = [COL.SO_LUONG, COL.DON_GIA_CHUA_VAT, COL.DON_GIA_CO_VAT, COL.TIEN_CK, COL.THANH_TIEN_CHUA_VAT, COL.THANH_TIEN_CO_VAT]
@@ -200,7 +198,7 @@ def clear_uploaded_filter_data():
 
 def clear_uploaded_merge_data():
     st.session_state["merge_uploader_nonce"] = st.session_state.get("merge_uploader_nonce", 0) + 1
-    for key in ["merge_cache_fingerprint", "merge_cached_df", "merge_cached_errors", "merge_cached_date_col"]:
+    for key in ["merge_cache_fingerprint", "merge_cached_df"]:
         st.session_state.pop(key, None)
 
 def get_uploaded_files_fingerprint(uploaded_files):
@@ -213,21 +211,6 @@ def sanitize_filename(filename):
 def ensure_xlsx_extension(filename):
     filename = sanitize_filename(filename)
     return filename if filename.lower().endswith('.xlsx') else f"{filename}.xlsx"
-
-def standardize_header_name(value, fallback_prefix="Cột"):
-    text = re.sub(r'\s+', ' ', str(value).strip())
-    if not text: text = fallback_prefix
-    return ' '.join(word[:1].upper() + word[1:].lower() for word in text.split())
-
-def make_unique_columns(columns):
-    seen, unique_columns = {}, []
-    for index, col in enumerate(columns, start=1):
-        base_name = standardize_header_name(col, fallback_prefix=f"Cột {index}")
-        count = seen.get(base_name, 0)
-        unique_name = base_name if count == 0 else f"{base_name}_{count + 1}"
-        seen[base_name] = count + 1
-        unique_columns.append(unique_name)
-    return unique_columns
 
 def find_header_row(preview_df, keywords=None):
     if preview_df.empty: return 0
@@ -244,78 +227,6 @@ def safe_read_excel(file, header=0, nrows=None):
     except Exception:
         file.seek(0)
         return pd.read_excel(file, header=header, nrows=nrows)
-
-def collapse_duplicate_columns(df):
-    collapsed_data = {}
-    for col in pd.unique(df.columns):
-        same_name_columns = df.loc[:, df.columns == col]
-        collapsed_data[col] = same_name_columns.iloc[:, 0] if same_name_columns.shape[1] == 1 else same_name_columns.bfill(axis=1).iloc[:, 0]
-    return pd.DataFrame(collapsed_data)
-
-def find_best_matching_header(column_name, base_headers, threshold=0.85):
-    normalized_column = normalize_text(column_name)
-    best_match, best_score = None, 0
-    for base_header in base_headers:
-        score = SequenceMatcher(None, normalized_column, normalize_text(base_header)).ratio()
-        if score > best_score:
-            best_score, best_match = score, base_header
-    return best_match if best_score >= threshold else None
-
-def find_invoice_date_column(columns):
-    keywords = ['ngay hoa don', 'ngay hoa don gtgt']
-    best_match, best_score = None, 0
-    for column in columns:
-        normalized_column = normalize_text(column)
-        if 'ngay' in normalized_column and 'hoa' in normalized_column and 'don' in normalized_column: return column
-        for keyword in keywords:
-            score = SequenceMatcher(None, normalized_column, keyword).ratio()
-            if score > best_score: best_score, best_match = score, column
-    return best_match if best_score >= 0.6 else None
-
-def read_merge_source_file(file):
-    preview_df = safe_read_excel(file, header=None, nrows=30)
-    df = safe_read_excel(file, header=find_header_row(preview_df))
-    df = df.dropna(axis=0, how='all')
-    df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed', case=False, regex=True)]
-    df.columns = make_unique_columns(df.columns)
-    return collapse_duplicate_columns(df).reset_index(drop=True)
-
-def align_dataframe_columns(df, base_headers, threshold=0.85):
-    rename_map = {col: find_best_matching_header(col, base_headers, threshold) or col for col in df.columns}
-    df = collapse_duplicate_columns(df.rename(columns=rename_map))
-    for column in df.columns:
-        if column not in base_headers: base_headers.append(column)
-    return df.reindex(columns=base_headers, fill_value=pd.NA), base_headers
-
-def merge_sm2057_files(uploaded_files, progress_bar=None, status_placeholder=None):
-    merged_frames, base_headers, errors = [], [], []
-
-    for index, file in enumerate(uploaded_files, start=1):
-        if progress_bar: progress_bar.progress(index / len(uploaded_files), text=f"Đang xử lý {index}/{len(uploaded_files)} file")
-        if status_placeholder: status_placeholder.info(f"Đang đọc: {file.name}")
-
-        try:
-            current_df = read_merge_source_file(file)
-            
-            # ĐÃ XÓA DÒNG TẠO CỘT "NGUỒN FILE GỐC" Ở ĐÂY!
-            
-            date_column = find_invoice_date_column(current_df.columns)
-            month_sort_key = get_file_month_sort_key(current_df, date_column)
-
-            if not base_headers:
-                base_headers = list(current_df.columns)
-            else:
-                current_df, base_headers = align_dataframe_columns(current_df, base_headers)
-
-            merged_frames.append((month_sort_key, index, current_df.reindex(columns=base_headers, fill_value=pd.NA)))
-        except Exception as exc:
-            errors.append(f"{file.name}: {exc}")
-
-    if not merged_frames: return None, errors, None
-
-    merged_frames.sort(key=lambda item: (item[0][0], item[0][1], item[1]))
-    merged_df = pd.concat([item[2] for item in merged_frames], ignore_index=True).dropna(axis=0, how='all').reset_index(drop=True)
-    return merged_df, errors, find_invoice_date_column(merged_df.columns)
 
 def build_agg_rules(columns, group_col):
     agg_rules = {}
@@ -362,6 +273,7 @@ def build_export_excel(export_df):
         export_df.to_excel(writer, index=False, sheet_name='Ket_qua')
     return buffer.getvalue()
 
+# ENGINE GỘP FILE CHÍNH (Sử dụng chung cho cả 2 Tab)
 @st.cache_data(show_spinner=False)
 def process_uploaded_files(uploaded_files):
     dfs = []
@@ -377,7 +289,20 @@ def process_uploaded_files(uploaded_files):
                 df = safe_read_excel(file, header=header_idx)
             else: continue
                 
+            # --- BẢN VÁ LỖI TREO APP ---
+            # 1. Chống tràn RAM do Excel chứa hàng triệu dòng trống (Phantom rows)
+            df = df.dropna(axis=0, how='all')
+            
+            # 2. Xóa các cột Unnamed rác
             df = df.loc[:, ~df.columns.astype(str).str.contains('^Unnamed')]
+            
+            # 3. Đổi tên cột trùng lặp để chống lỗi PyArrow Crash khi vẽ bảng
+            cols = pd.Series(df.columns.astype(str))
+            for dup in cols[cols.duplicated()].unique(): 
+                cols[cols[cols == dup].index.values.tolist()] = [f"{dup}_{i}" if i != 0 else dup for i in range(sum(cols == dup))]
+            df.columns = cols
+            # ----------------------------
+            
             dfs.append((get_file_month_sort_key(df, COL.NGAY_HD if COL.NGAY_HD in df.columns else None), len(dfs), df))
         except Exception as e:
             st.error(f"Lỗi khi đọc file {file.name}: {e}")
@@ -487,9 +412,9 @@ def render_result_table(final_df, selected_columns, tab_key, show_total_text=Tru
         if show_total_text and total_display_label:
             st.markdown(f"""
             <div style="background-color: #f8fafc; padding: 12px 20px; border-radius: 8px; border-left: 5px solid #0ea5e9; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
-                <span style="font-size: 1.1em;"><strong>&#128176; {total_display_label}:</strong></span>
-                <span style="color:#dc2626; font-size: 1.3em; font-weight: bold; margin-left: 8px;">{fmt_val}</span> VNĐ <br>
-                <span style="font-size: 1em; color: #475569; margin-top: 5px; display: inline-block;"><strong>&#9997; Bằng chữ:</strong> <i>{doc_so_thanh_chu(total_display_value)}</i></span>
+                <span style="cfont-size: 1em; color: #475569;"><strong>&#128176; {total_display_label}:</strong></span>
+                <span style="color:#dc2626; font-size: 1.3em; font-weight: bold; margin-left: 8px;">{fmt_val}</span><span style="cfont-size: 1em; color: #475569;"> VNĐ</span><br>
+                <span style="font-size: 1em; color: #475569; display: inline-block;"><strong>&#9997; Bằng chữ:</strong> <i>{doc_so_thanh_chu(total_display_value)}</i></span>
             </div>
             """, unsafe_allow_html=True)
 
@@ -578,8 +503,8 @@ def render_tab_bang_08a(filtered_df, selected_kh, selected_hd):
 # ==========================================
 def render_filter_section():
     st.markdown("""
-    <div style="background-color: #f1f5f9; border-radius: 0px; margin-bottom: 12px;">
-        <h3 style="margin: 0; color: #0f172a; font-size: 1.2em;">1&#65039;&#8419; Tải dữ liệu lên</h3>
+    <div style="border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 15px;">
+        <h3 style="margin: 0; color: #475569; font-size: 1.4em; font-weight: 600;">1&#65039;&#8419; Tải dữ liệu lên</h3>
     </div>
     """, unsafe_allow_html=True)
     
@@ -600,8 +525,8 @@ def render_filter_section():
             st.success(f"\u2705 Đã gộp thành công {len(uploaded_files)} file. Tổng số dòng dữ liệu: {len(df)}")
             
             st.markdown("""
-            <div style="background-color: #f1f5f9; border-radius: 0px; margin-top: 15px; margin-bottom: 12px;">
-                <h3 style="margin: 0; color: #0f172a; font-size: 1.2em;">2&#65039;&#8419; Bộ lọc dữ liệu</h3>
+            <div style="border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-top: 20px; margin-bottom: 15px;">
+                <h3 style="margin: 0; color: #475569; font-size: 1.4em; font-weight: 600;">2&#65039;&#8419; Bộ lọc dữ liệu</h3>
             </div>
             """, unsafe_allow_html=True)
 
@@ -655,8 +580,8 @@ def render_filter_section():
 
 def render_merge_section():
     st.markdown("""
-    <div style="background-color: #f1f5f9; border-radius: 0px; margin-bottom: 12px;">
-        <h3 style="margin: 0; color: #0f172a; font-size: 1.2em;">&#129513; Làm sạch & Gộp file Excel giống nhau</h3>
+    <div style="border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; margin-bottom: 15px;">
+        <h3 style="margin: 0; color: #475569; font-size: 1.4em; font-weight: 600;">&#129513; Làm sạch & Gộp file Excel giống nhau</h3>
     </div>
     """, unsafe_allow_html=True)
     
@@ -664,44 +589,61 @@ def render_merge_section():
     
     merge_upload_col, merge_clear_col = st.columns([1, 0.06])
     with merge_upload_col:
-        merge_files = st.file_uploader("Kéo thả nhiều file Excel vào đây (.xlsx, .xls)", type=['xlsx', 'xls'], accept_multiple_files=True, key=f"merge_uploader_{st.session_state['merge_uploader_nonce']}")
+        # CẬP NHẬT: Cho phép nhận cả file CSV giống hệt như tab Lọc
+        merge_files = st.file_uploader("Kéo thả nhiều file Excel/CSV vào đây (.xlsx, .xls, .csv)", type=['csv', 'xlsx', 'xls'], accept_multiple_files=True, key=f"merge_uploader_{st.session_state['merge_uploader_nonce']}")
     with merge_clear_col:
         with st.container(key="clear_upload_btn_merge"):
             st.button("\u21BB", key="clear_uploaded_merge_files_btn", width='stretch', help="Xóa dữ liệu đã tải", on_click=clear_uploaded_merge_data)
 
     if merge_files:
-        merge_fingerprint = get_uploaded_files_fingerprint(merge_files)
-        cache_key = "merge_cache_fingerprint"
+        with st.spinner('Đang đọc và gộp dữ liệu...'):
+            # SỬ DỤNG CHUNG ENGINE GỘP FILE VỚI TAB LỌC
+            merged_df = process_uploaded_files(merge_files)
         
-        if st.session_state.get(cache_key) != merge_fingerprint:
-            progress_bar = st.progress(0, text="Sẵn sàng xử lý")
-            status_placeholder = st.empty()
-            merged_df, merge_errors, detected_date_col = merge_sm2057_files(merge_files, progress_bar, status_placeholder)
-
-            progress_bar.progress(1.0, text="Đã hoàn tất xử lý")
-            status_placeholder.empty()
-            st.session_state.update({cache_key: merge_fingerprint, "merge_cached_df": merged_df, "merge_cached_errors": merge_errors, "merge_cached_date_col": detected_date_col})
-        else:
-            merged_df, merge_errors, detected_date_col = st.session_state.get("merge_cached_df"), st.session_state.get("merge_cached_errors", []), st.session_state.get("merge_cached_date_col")
-
+        # Cắt bỏ các cột nội bộ sinh ra trong quá trình process để trả file về nguyên bản
         if merged_df is not None:
-            st.success(f"\u2705 Đã gộp thành công {len(merge_files)} file.")
-            st.caption(f"\U0001F4CC Tổng số dòng dữ liệu thu thập được: **{len(merged_df)}**")
-            if detected_date_col: st.caption(f"\U0001F5D3\uFE0F Đã phát hiện cột ngày hóa đơn để sắp xếp: **{detected_date_col}**")
-            if merge_errors:
-                st.warning("Một số file không đọc được:")
-                for error in merge_errors: st.write(f"- {error}")
+            internal_cols = [COL.SORT_DATE, COL.KH_CODE, COL.KH_SEARCH, COL.KH_DISPLAY]
+            cols_to_drop = [c for c in internal_cols if c in merged_df.columns]
+            merged_df = merged_df.drop(columns=cols_to_drop)
 
-            merge_download_name = st.text_input("Tên file tải về", value=ensure_xlsx_extension(f"DuLieu_DaGop_{datetime.now().strftime('%Y-%m-%d')}"), key="download_name_merged_sm2057")
-            st.download_button(label="\U0001F4E5 Tải về DuLieu_DaGop.xlsx", data=build_export_excel(merged_df), file_name=ensure_xlsx_extension(merge_download_name), mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', key="download_merged_sm2057")
+            # Gom 2 dòng thông báo làm 1 cho gọn gàng
+            st.success(f"✅ Đã gộp thành công {len(merge_files)} file. Tổng số dòng dữ liệu: {len(merged_df)}")
+
+            # --- SỬA LỖI ĐỔI TÊN TẠI ĐÂY ---
+            dl_col1, dl_col2 = st.columns([4, 2])
+            with dl_col1:
+                merge_download_name = st.text_input(
+                    "Tên file tải về:", 
+                    value=ensure_xlsx_extension(f"DuLieu_DaGop_{datetime.now().strftime('%Y-%m-%d')}"), 
+                    key="download_name_merged_sm2057"
+                )
+            with dl_col2:
+                st.markdown("<div style='margin-top: 28px;'></div>", unsafe_allow_html=True)
+                final_dl_name = ensure_xlsx_extension(merge_download_name)
+                # Ép nút tải về phải hiển thị tên file đang lấy
+                st.download_button(
+                    label=f"📥 Tải file: {final_dl_name}", 
+                    data=build_export_excel(merged_df), 
+                    file_name=final_dl_name, 
+                    mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 
+                    key="download_merged_sm2057", 
+                    width='stretch'
+                )
+            # -------------------------------
+
             st.subheader("Xem trước dữ liệu")
-            st.dataframe(merged_df.head(50), width=1500, hide_index=True)
+            
+            # Khắc phục lỗi Pyarrow bằng cách Format cột Datetime (giống y hệt Tab Lọc)
+            display_merge_df = merged_df.copy()
+            for col in display_merge_df.columns:
+                if pd.api.types.is_datetime64_any_dtype(display_merge_df[col]) or display_merge_df[col].apply(lambda x: isinstance(x, datetime)).any():
+                    display_merge_df[col] = pd.to_datetime(display_merge_df[col], errors='coerce', dayfirst=True).dt.strftime('%d/%m/%Y')
+            
+            st.dataframe(display_merge_df.head(50), width='stretch', hide_index=True)
         else:
             st.error("Không thể gộp dữ liệu từ các file đã tải lên.")
-            if merge_errors:
-                for error in merge_errors: st.write(f"- {error}")
-    else:
-        clear_uploaded_merge_data() # Reset nếu xóa file
+            
+    # ĐÃ XÓA KHỎI ĐÂY: Hàm `else: clear_uploaded_merge_data()` gây treo Widget Upload
 
 # ==========================================
 # 5. ĐIỂM BẮT ĐẦU (ENTRY POINT)
